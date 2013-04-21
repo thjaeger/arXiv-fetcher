@@ -3,18 +3,50 @@ using GLib;
 
 static const string prog_name = "arXiv-fetcher";
 
+class Timeout {
+    public delegate void Func();
+
+    uint source;
+    uint interval;
+    unowned Func f;
+
+    public Timeout(uint interval, Func f) {
+        source = 0;
+        this.interval = interval;
+        this.f = f;
+    }
+
+    public void reset() {
+        if (source > 0)
+            GLib.Source.remove(source);
+        source = GLib.Timeout.add_seconds(interval, () => {
+                source = 0;
+                f();
+                return false;
+            });
+    }
+
+    public void trigger() {
+        if (source > 0) {
+            GLib.Source.remove(source);
+            f();
+        }
+    }
+}
+
 class Status {
     public int version;
-    public Gee.HashSet<string> labels;
+    public Gee.HashSet<string> tags;
 
     public Status(int version) {
         this.version = version;
-        labels = new Gee.HashSet<string>();
+        tags = new Gee.HashSet<string>();
     }
 }
 
 class Entry {
     public static const string variant_type = "(sissssassssas)";
+    public static Regex url_id;
 
     public Entry() {
         updated = "";
@@ -106,70 +138,83 @@ class Entry {
             return false;
         }
     }
-}
 
-Entry parse_entry(Xml.Node* node) {
-    var e = new Entry();
-    for (Xml.Node* i = node->children; i != null; i = i->next) {
-        if (i->name == "id") {
-            MatchInfo info;
-            Regex re = /^http:\/\/arxiv.org\/abs\/(.*)$/;
-            if (!re.match(i->get_content(), 0, out info))
-                continue;
-            e.id = Arxiv.get_id(info.fetch(1), out e.version);
-        } else if (i->name == "updated") {
-            e.updated = i->get_content();
-        } else if (i->name == "published") {
-            e.published = i->get_content();
-        } else if (i->name == "title") {
-            e.title = i->get_content().replace("\n ","");
-        } else if (i->name == "summary") {
-            e.summary = i->get_content().replace("\n"," ").strip();
-        } else if (i->name == "author") {
-            for (Xml.Node* j = i->children; j != null; j = j->next)
-                if (j->name == "name")
-                    e.authors += j->get_content();
-        } else if (i->name == "comment") {
-            e.comment = i->get_content().replace("\n ","");
-        } else if (i->name == "link") {
-            if (i->get_prop("type") == "text/html")
-                e.arxiv = i->get_prop("href");
-            else if (i->get_prop("type") == "application/pdf")
-                e.pdf = i->get_prop("href");
-        } else if (i->name == "primary_category") {
-            e.categories[0] = i->get_content();
-        } else if (i->name == "category") {
-            e.categories += i->get_prop("term");
+    public Entry.from_xml(Xml.Node* node) {
+        this();
+        for (Xml.Node* i = node->children; i != null; i = i->next) {
+            if (i->name == "id") {
+                MatchInfo info;
+                if (!url_id.match(i->get_content(), 0, out info))
+                    continue;
+                id = Arxiv.get_id(info.fetch(1), out version);
+            } else if (i->name == "updated") {
+                updated = i->get_content();
+            } else if (i->name == "published") {
+                published = i->get_content();
+            } else if (i->name == "title") {
+                title = i->get_content().replace("\n ","");
+            } else if (i->name == "summary") {
+                summary = i->get_content().replace("\n"," ").strip();
+            } else if (i->name == "author") {
+                for (Xml.Node* j = i->children; j != null; j = j->next)
+                    if (j->name == "name")
+                        authors += j->get_content();
+            } else if (i->name == "comment") {
+                comment = i->get_content().replace("\n ","");
+            } else if (i->name == "link") {
+                if (i->get_prop("type") == "text/html")
+                    arxiv = i->get_prop("href");
+                else if (i->get_prop("type") == "application/pdf")
+                    pdf = i->get_prop("href");
+            } else if (i->name == "primary_category") {
+                categories[0] = i->get_content();
+            } else if (i->name == "category") {
+                categories += i->get_prop("term");
+            }
         }
     }
-    return e;
 }
 
 class Arxiv {
+    public static Regex old_format;
+    public static Regex new_format;
+
     Soup.SessionAsync session;
+    public Timeout config_timeout;
     const string api = "http://export.arxiv.org/api/query";
-    public static Regex id_regex = /^([^ v]+)v([0123456789]+)$/;
 
     public Gee.HashMap<string, Entry> entries;
     public Gee.HashMap<string, Status> config;
 
-    public Arxiv() {
-        session = new Soup.SessionAsync();
-        config = read_config();
 
+    public Arxiv() {
+        config = new Gee.HashMap<string, Status>();
         entries = new Gee.HashMap<string, Entry>();
+
+        session = new Soup.SessionAsync();
+        config_timeout = new Timeout(5, save_config);
+
+        read_config();
         load_entries();
     }
 
-    // TODO: Filter out math/0808.0573v1
     public static string? get_id(string idv, out int version) {
         MatchInfo info;
-        if (!id_regex.match(idv, 0, out info)) {
-            version = 0;
-            return null;
+        version = 0;
+
+        if (old_format.match(idv, 0, out info)) {
+            var mv = info.fetch(4);
+            if (mv != null && mv != "")
+                version = int.parse(mv[1:mv.length]);
+            return info.fetch(1) + "/" + info.fetch(3);
         }
-        version = int.parse(info.fetch(2));
-        return info.fetch(1);
+        if (new_format.match(idv, 0, out info)) {
+            var mv = info.fetch(2);
+            if (mv != null && mv != "")
+                version = int.parse(mv[1:mv.length]);
+            return info.fetch(1);
+        }
+        return null;
     }
 
     void save_entries() {
@@ -239,7 +284,7 @@ class Arxiv {
         if (feed->name == "feed") {
             for (Xml.Node* i = feed->children; i != null; i = i->next)
                 if (i->name == "entry") {
-                    Entry entry = parse_entry(i);
+                    Entry entry = new Entry.from_xml(i);
                     if (entry.id == null)
                         error("Got invalid response from arXiv\n");
                     entries.set(entry.id, entry);
@@ -263,12 +308,14 @@ class Arxiv {
         query_n(ids_array, n);
     }
 
-    Gee.HashMap<string, Status> read_config() {
-        var ids = new Gee.HashMap<string, Status>();
-        var config_file = Path.build_filename(Environment.get_user_config_dir(), prog_name, "preprints");
-        var file = File.new_for_path(config_file);
+    static string get_config_filename() {
+        return Path.build_filename(Environment.get_user_config_dir(), prog_name, "preprints");
+    }
+
+    void read_config() {
+        var file = File.new_for_path(get_config_filename());
         if (!file.query_exists())
-            return ids;
+            return;
 
         try {
             var dis = new DataInputStream(file.read());
@@ -276,21 +323,36 @@ class Arxiv {
             while ((line = dis.read_line(null)) != null) {
                 int version;
                 string[] words = line.split(" ");
-                string id = Arxiv.get_id(words[0], out version);
+                string id = get_id(words[0], out version);
                 if (id == null) {
                     stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
                     continue;
                 }
                 var status = new Status(version);
                 foreach (var str in words[1:words.length])
-                    status.labels.add(str);
-                ids.set(id, status);
+                    status.tags.add(str);
+                config.set(id, status);
             }
         } catch (Error e) {
-            stderr.printf("Error: %s\n", e.message);
-            return ids;
+            stderr.printf("Error reading config file: %s\n", e.message);
         }
-        return ids;
+    }
+
+    void save_config() {
+        var contents = new StringBuilder();
+        foreach (var ke in config.entries) {
+            contents.append(ke.key);
+            if (ke.value.version > 0)
+                contents.append_printf("v%d", ke.value.version);
+            foreach (var tag in ke.value.tags)
+                contents.append(" " + tag);
+            contents.append_c('\n');
+        }
+        try {
+            FileUtils.set_contents(get_config_filename(), contents.str);
+        } catch (Error e) {
+            stderr.printf("Error saving config file: %s\n", e.message);
+        }
     }
 
 }
@@ -377,7 +439,7 @@ class AppWindow : Gtk.ApplicationWindow {
         vgrid.attach(paned,0,1,1,1);
         add(vgrid);
 
-
+        destroy.connect(() => { arxiv.config_timeout.trigger(); });
     }
 
     delegate string EntryField(Entry e);
@@ -444,7 +506,7 @@ class AppWindow : Gtk.ApplicationWindow {
                     Column.ID, ke.key,
                     Column.AUTHORS, string.joinv(", ", authors),
                     Column.TITLE, ke.value.title,
-                    Column.WEIGHT,  arxiv.config.get(ke.key).labels.contains("TODO") ? 700 : 400
+                    Column.WEIGHT,  arxiv.config.get(ke.key).tags.contains("TODO") ? 700 : 400
                 );
         }
     }
@@ -458,7 +520,7 @@ class AppWindow : Gtk.ApplicationWindow {
             int weight;
             model.get(iter, Column.ID, out id, Column.WEIGHT, out weight);
             entry = arxiv.entries.get(id);
-            todo_button.active = arxiv.config.get(id).labels.contains("TODO");
+            todo_button.active = arxiv.config.get(id).tags.contains("TODO");
             todo_button.sensitive = true;
         } else {
             todo_button.active = false;
@@ -487,13 +549,14 @@ class AppWindow : Gtk.ApplicationWindow {
             string id;
             filtered_model.get(iter, Column.ID, out id);
             if (todo_button.active)
-                arxiv.config.get(id).labels.add("TODO");
+                arxiv.config.get(id).tags.add("TODO");
             else
-                arxiv.config.get(id).labels.remove("TODO");
+                arxiv.config.get(id).tags.remove("TODO");
 
             Gtk.TreeIter child_iter;
             filtered_model.convert_iter_to_child_iter(out child_iter, iter);
             preprint_model.set(child_iter, Column.WEIGHT, todo_button.active ? 700:400);
+            arxiv.config_timeout.reset();
         }
     }
 
@@ -522,7 +585,7 @@ class AppWindow : Gtk.ApplicationWindow {
                         !match_array(re, e.authors) &&
                         !re.match(e.comment) &&
                         !match_array(re, e.categories) &&
-                        !match_array(re, s.labels.to_array())
+                        !match_array(re, s.tags.to_array())
                    )
                     return false;
             } catch (GLib.RegexError e) {
@@ -544,5 +607,13 @@ class App : Gtk.Application {
 }
 
 int main (string[] args) {
+    try {
+        Arxiv.old_format = new Regex("^([[:lower:]-]+)(\\.[[:upper:]]{2})?/([[:digit:]]{7})(v[[:digit:]]+)?$");
+        Arxiv.new_format = new Regex("^([[:digit:]]{4}\\.[[:digit:]]{4})(v[[:digit:]]+)?");
+        Entry.url_id = new Regex("^http://arxiv.org/abs/(.*)$");
+    } catch (GLib.RegexError e) {
+        stderr.printf("Regex Error: %s\n", e.message);
+    }
+
     return new App().run(args);
 }
