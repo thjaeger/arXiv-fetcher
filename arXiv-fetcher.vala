@@ -34,13 +34,39 @@ class Timeout {
     }
 }
 
-class Status {
+class Status : Object, Mergable<Status> {
+    private string _id;
+    public string id { get { return _id; } }
     public int version;
-    public Gee.HashSet<string> tags;
+    public Gee.HashSet<string> tags { get; private set; }
 
-    public Status(int version) {
+    public Status(string id, int version) {
+        _id = id;
         this.version = version;
         tags = new Gee.HashSet<string>();
+    }
+
+    public void set_tag(string tag) {
+        if (tags.contains(tag))
+            return;
+        tags.add(tag);
+        tags = tags;
+    }
+
+    public void unset_tag(string tag) {
+        if (!tags.contains(tag))
+            return;
+        tags.remove(tag);
+        tags = tags;
+    }
+
+    public void merge(Status s) {
+        if (s.version > version)
+            version = s.version;
+        if (s.tags.size > 0) {
+            tags.add_all(s.tags);
+            tags = tags;
+        }
     }
 }
 
@@ -175,7 +201,7 @@ class Entry {
     }
 }
 
-class Arxiv {
+class Arxiv : Object {
     public static Regex old_format;
     public static Regex new_format;
 
@@ -184,17 +210,19 @@ class Arxiv {
     const string api = "http://export.arxiv.org/api/query";
 
     public Gee.HashMap<string, Entry> entries;
-    public Gee.HashMap<string, Status> config;
-
+    public ListModel<Status> config;
 
     public Arxiv() {
-        config = new Gee.HashMap<string, Status>();
+        config = new ListModel<Status>((s1, s2) => s1.id == s2.id);
         entries = new Gee.HashMap<string, Entry>();
 
         session = new Soup.SessionAsync();
         config_timeout = new Timeout(5, save_config);
 
         read_config();
+        config.row_inserted.connect((path, iter) => { config_timeout.reset(); });
+        config.row_deleted.connect(path => { config_timeout.reset(); });
+        config.row_changed.connect((path, iter) => { config_timeout.reset(); });
         load_entries();
     }
 
@@ -249,9 +277,10 @@ class Arxiv {
             stderr.printf("Error loading database: %s\n", e.message);
         }
         var ids = new Gee.ArrayList<string>();
-        foreach (var id in config.keys)
-            if (!entries.has_key(id))
-                ids.add(id);
+        config.foreach(s => {
+            if (!entries.has_key(s.id))
+                ids.add(s.id);
+        });
         if (ids.is_empty)
             return;
         query_ids(ids);
@@ -261,16 +290,13 @@ class Arxiv {
             entries.get(id).download();
     }
 
-    public bool import(string id, Status s) {
-        if (config.has_key(id))
-            return false;
-        config.set(id, s);
-        config_timeout.reset();
+    public bool import(Status s) {
         var ids = new Gee.ArrayList<string>();
-        ids.add(id);
+        ids.add(s.id);
         query_ids(ids);
         save_entries();
-        entries.get(id).download();
+        entries.get(s.id).download();
+        config.add(s);
         return true;
     }
 /*
@@ -341,10 +367,10 @@ class Arxiv {
                     stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
                     continue;
                 }
-                var status = new Status(version);
+                var status = new Status(id, version);
                 foreach (var str in words[1:words.length])
                     status.tags.add(str);
-                config.set(id, status);
+                config.add(status);
             }
         } catch (Error e) {
             stderr.printf("Error reading config file: %s\n", e.message);
@@ -353,14 +379,14 @@ class Arxiv {
 
     void save_config() {
         var contents = new StringBuilder();
-        foreach (var ke in config.entries) {
-            contents.append(ke.key);
-            if (ke.value.version > 0)
-                contents.append_printf("v%d", ke.value.version);
-            foreach (var tag in ke.value.tags)
+        config.foreach(s => {
+            contents.append(s.id);
+            if (s.version > 0)
+                contents.append_printf("v%d", s.version);
+            foreach (var tag in s.tags)
                 contents.append(" " + tag);
             contents.append_c('\n');
-        }
+        });
         try {
             FileUtils.set_contents(get_config_filename(), contents.str);
         } catch (Error e) {
@@ -372,27 +398,17 @@ class Arxiv {
 
 class AppWindow : Gtk.ApplicationWindow {
     Gtk.TreeView preprint_view;
-    Gtk.ListStore preprint_model;
-    Gtk.TreeModelFilter filtered_model;
-    Gtk.ToggleButton todo_button;
+    Gtk.TreeModelFilter preprint_model;
     Gtk.Entry search_entry;
     Gtk.Button import_button;
 
-    public Entry entry { get; set; }
+    public Gee.ArrayList<Status> selected { get; set; }
+    public Entry? entry { get; set; }
 
     public string clipboard_id { get; set; }
-    public string selection_id { get; set; }
     int clipboard_version;
-    int selection_version;
 
     Arxiv arxiv;
-
-    enum Column {
-        ID,
-        AUTHORS,
-        TITLE,
-        WEIGHT,
-    }
 
     internal AppWindow(App app) {
         Object (application: app, title: prog_name);
@@ -400,44 +416,61 @@ class AppWindow : Gtk.ApplicationWindow {
         set_default_size(800,600);
 
         arxiv = new Arxiv();
+
+        selected = new Gee.ArrayList<Status>();
 //        arxiv.update_entries();
 
         border_width = 10;
 
         var vgrid = new Gtk.Grid();
         var hgrid = new Gtk.Grid();
-
-        import_button = new Gtk.Button.with_label("Paste");
-        hgrid.attach(import_button,0,0,1,1);
+        int hi = 0;
 
         var search_label = new Gtk.Label("Search: ");
-        hgrid.attach(search_label,1,0,1,1);
+        hgrid.attach(search_label, hi++, 0, 1, 1);
 
         search_entry = new Gtk.Entry();
-        search_entry.changed.connect(() => { filtered_model.refilter(); });
+        search_entry.changed.connect(() => { preprint_model.refilter(); });
         search_entry.set_size_request(300,-1);
-        hgrid.attach(search_entry,2,0,1,1);
+        hgrid.attach(search_entry, hi++, 0, 1, 1);
 
-        todo_button = new Gtk.ToggleButton.with_label("TODO");
+        import_button = new Gtk.Button.with_mnemonic("_Paste");
+        hgrid.attach(import_button, hi++, 0, 1, 1);
+
+        var delete_button = new Gtk.Button.with_mnemonic("_Delete");
+        delete_button.sensitive = false;
+        delete_button.clicked.connect(on_delete);
+        hgrid.attach(delete_button, hi++, 0, 1, 1);
+
+        var todo_button = new Gtk.ToggleButton.with_mnemonic("_TODO");
         todo_button.sensitive = false;
-        todo_button.notify["active"].connect(on_todo_button_toggled);
+        todo_button.toggled.connect(() => {
+            foreach (var s in selected) {
+                if (s.tags.contains("TODO") == todo_button.active) {
+                    // TODO stdout.printf("This is bad!\n");
+                    continue;
+                }
+                if (todo_button.active)
+                    s.set_tag("TODO");
+                else
+                    s.unset_tag("TODO");
+            }
+        });
         todo_button.halign = Gtk.Align.END;
         todo_button.hexpand = true;
-        hgrid.attach(todo_button,3,0,1,1);
+        hgrid.attach(todo_button, hi++, 0, 1, 1);
 
         vgrid.attach(hgrid,0,0,1,1);
 
         var paned = new Gtk.Paned(Gtk.Orientation.VERTICAL);
 
         setup_preprints();
-        foreach (var id in arxiv.config.keys)
-            add_preprint(id);
 
         preprint_view.expand = true;
         preprint_view.set_size_request(750, -1);
         preprint_view.get_selection().changed.connect(on_selection_changed);
+        preprint_view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
         preprint_view.row_activated.connect(on_row_activated);
-        preprint_model.set_sort_column_id(Column.AUTHORS, Gtk.SortType.ASCENDING);
 
         var scroll1 = new Gtk.ScrolledWindow(null, null);
         scroll1.set_border_width(10);
@@ -447,11 +480,11 @@ class AppWindow : Gtk.ApplicationWindow {
         scroll1.set_size_request(-1,350);
 
         var field_grid = new Gtk.Grid();
-        add_field(field_grid, "Author(s)", (e) => string.joinv(", ", e.authors));
-        add_field(field_grid, "Title", (e) => e.title);
-        add_field(field_grid, "Abstract", (e) => e.summary);
-        add_field(field_grid, "Comment", (e) => e.comment);
-        add_field(field_grid, "ArXiv ID", (e) => "<a href=\"%s\">%sv%d</a>".printf(e.arxiv, e.id, e.version), true);
+        add_field(field_grid, "Author(s)", e => string.joinv(", ", e.authors));
+        add_field(field_grid, "Title", e => e.title);
+        add_field(field_grid, "Abstract", e => e.summary);
+        add_field(field_grid, "Comment", e => e.comment);
+        add_field(field_grid, "ArXiv ID", e => "<a href=\"%s\">%sv%d</a>".printf(e.arxiv, e.id, e.version), true);
 
         var scroll2 = new Gtk.ScrolledWindow(null, null);
         scroll2.set_border_width(10);
@@ -465,38 +498,53 @@ class AppWindow : Gtk.ApplicationWindow {
 
         destroy.connect(() => { arxiv.config_timeout.trigger(); });
 
-        Gtk.Clipboard clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_CLIPBOARD);
+        var clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_CLIPBOARD);
         clipboard.owner_change.connect((e) => {
-                clipboard.request_text((c, text) => { clipboard_id = text == null ? null : Arxiv.get_id(text, out clipboard_version); });
-            });
-        Gtk.Clipboard selection_clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_PRIMARY);
+            clipboard.request_text((c, text) => { clipboard_id = text == null ? null : Arxiv.get_id(text, out clipboard_version); });
+        });
+        var selection_clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_PRIMARY);
         selection_clipboard.owner_change.connect((e) => {
-                selection_clipboard.request_text((c, text) => { selection_id = text == null ? null : Arxiv.get_id(text, out selection_version); });
-            });
+            selection_clipboard.request_text((c, text) => { clipboard_id = text == null ? null : Arxiv.get_id(text, out clipboard_version); });
+        });
 
-        notify["clipboard-id"].connect((s, p) => { import_button.sensitive = clipboard_id != null || selection_id != null; });
-        notify["selection-id"].connect((s, p) => { import_button.sensitive = clipboard_id != null || selection_id != null; });
+        notify["clipboard-id"].connect((s, p) => { import_button.sensitive = clipboard_id != null; });
 
         clipboard.owner_change(new Gdk.Event(Gdk.EventType.NOTHING));
-        selection_clipboard.owner_change(new Gdk.Event(Gdk.EventType.NOTHING));
 
         import_button.clicked.connect(() => { import_clipboard(); });
+
+        notify["selected"].connect((ss, p) => {
+            entry = selected.size != 1 ? null : arxiv.entries.get(selected[0].id);
+            delete_button.sensitive = selected.size > 0;
+            bool? active = null;
+            foreach (var s in selected) {
+                if (active == null) {
+                    active = s.tags.contains("TODO");
+                } else if (active != s.tags.contains("TODO")) {
+                    todo_button.active = false;
+                    todo_button.sensitive = false;
+                    return;
+                }
+            }
+            todo_button.active = active != null && active;
+            todo_button.sensitive = active != null;
+        });
+
+        arxiv.config.row_inserted.connect((path, iter) => {
+            Gtk.TreeIter preprint_iter;
+            if (!preprint_model.convert_child_iter_to_iter(out preprint_iter, iter))
+                return;
+            preprint_view.get_selection().select_iter(preprint_iter);
+        });
+
+        search_entry.grab_focus();
     }
 
     void import_clipboard() {
-        string id;
-        int version;
-        if (clipboard_id != null) {
-            id = clipboard_id;
-            version = clipboard_version;
-        } else if (selection_id != null) {
-            id = selection_id;
-            version = selection_version;
-        } else {
+        if (clipboard_id == null)
             return;
-        }
-        if (arxiv.import(id, new Status(version)))
-            add_preprint(id);
+        preprint_view.get_selection().unselect_all();
+        arxiv.import(new Status(clipboard_id, clipboard_version));
     }
 
     delegate string EntryField(Entry e);
@@ -521,78 +569,71 @@ class AppWindow : Gtk.ApplicationWindow {
 
         this.notify["entry"].connect((s, p) => {
                 if (markup)
-                    field.set_markup(f(entry));
+                    field.set_markup(entry != null ? f(entry) : "");
                 else
-                    field.set_text(f(entry));
+                    field.set_text(entry != null ? f(entry) : "");
             });
     }
 
     void setup_preprints() {
         preprint_view = new Gtk.TreeView();
-        preprint_model = new Gtk.ListStore(4, typeof(string), typeof(string), typeof(string), typeof(int));
-        filtered_model = new Gtk.TreeModelFilter(preprint_model, null);
-        filtered_model.set_visible_func(do_filter);
+        var status_column_id = arxiv.config.add_object_column<Status>(s => s);
+        assert(status_column_id == 0);
+        var authors_column_id = arxiv.config.add_string_column(s => {
+            string[] authors = {};
+            foreach (var author in arxiv.entries.get(s.id).authors) {
+                var names = author.split(" ");
+                authors += names[names.length-1];
+            }
+            return string.joinv(", ", authors);
+        });
+        var title_column_id = arxiv.config.add_string_column(s => arxiv.entries.get(s.id).title);
+        var weight_column_id = arxiv.config.add_int_column(s => s.tags.contains("TODO") ? 700 : 400);
 
-        preprint_view.set_model(filtered_model);
+        preprint_model = new Gtk.TreeModelFilter(arxiv.config, null);
+        preprint_model.set_visible_func(do_filter);
+
+        preprint_view.set_model(preprint_model);
         var authors_renderer = new Gtk.CellRendererText();
         authors_renderer.ellipsize = Pango.EllipsizeMode.END;
-        preprint_view.insert_column_with_attributes (-1, "Author(s)", authors_renderer, "text", Column.AUTHORS);
+        preprint_view.insert_column_with_attributes(-1, "Author(s)", authors_renderer, "text", authors_column_id);
         var title_renderer = new Gtk.CellRendererText();
         title_renderer.ellipsize = Pango.EllipsizeMode.END;
-        preprint_view.insert_column_with_attributes (-1, "Title", title_renderer, "text", Column.TITLE);
+        preprint_view.insert_column_with_attributes(-1, "Title", title_renderer, "text", title_column_id);
         var authors_column = preprint_view.get_column(0);
         authors_column.set_sizing(Gtk.TreeViewColumnSizing.FIXED);
         authors_column.set_fixed_width(200);
         authors_column.resizable = true;
-        authors_column.set_sort_column_id(Column.AUTHORS);
+        authors_column.set_sort_column_id(authors_column_id);
         var title_column = preprint_view.get_column(1);
         title_column.resizable = true;
-        title_column.set_sort_column_id(Column.TITLE);
-        title_column.add_attribute(title_renderer, "weight", Column.WEIGHT);
-    }
-
-    void add_preprint(string id) {
-        Status s = arxiv.config.get(id);
-        Entry e = arxiv.entries.get(id);
-        Gtk.TreeIter iter;
-        preprint_model.append(out iter);
-        string[] authors = {};
-        foreach (var author in e.authors) {
-            var names = author.split(" ");
-            authors += names[names.length-1];
-        }
-        preprint_model.set(iter,
-                Column.ID, id,
-                Column.AUTHORS, string.joinv(", ", authors),
-                Column.TITLE, e.title,
-                Column.WEIGHT,  s.tags.contains("TODO") ? 700 : 400
-            );
+        title_column.set_sort_column_id(title_column_id);
+        title_column.add_attribute(title_renderer, "weight", weight_column_id);
     }
 
     void on_selection_changed(Gtk.TreeSelection selection) {
         Gtk.TreeModel model;
-        Gtk.TreeIter iter;
 
-        if (selection.get_selected(out model, out iter)) {
-            string id;
-            int weight;
-            model.get(iter, Column.ID, out id, Column.WEIGHT, out weight);
-            entry = arxiv.entries.get(id);
-            todo_button.active = arxiv.config.get(id).tags.contains("TODO");
-            todo_button.sensitive = true;
-        } else {
-            todo_button.active = false;
-            todo_button.sensitive = false;
-        }
+        selected.clear();
+        var rows = selection.get_selected_rows(out model);
+        rows.foreach(row => {
+            Gtk.TreeIter iter;
+            if (model.get_iter(out iter, row)) {
+                Status s;
+                model.get(iter, 0, out s);
+                selected.add(s);
+            }
+        });
+        selected = selected;
     }
 
     void on_row_activated(Gtk.TreePath path, Gtk.TreeViewColumn column) {
         Gtk.TreeIter iter;
-        if (!filtered_model.get_iter(out iter, path))
+        if (!preprint_model.get_iter(out iter, path))
             return;
-        string id;
-        filtered_model.get(iter, Column.ID, out id);
-        var pdf = arxiv.entries.get(id).get_filename();
+        Status s;
+        preprint_model.get(iter, 0, out s);
+        var pdf = arxiv.entries.get(s.id).get_filename();
         try {
             Gtk.show_uri(null, "file://" + pdf, Gdk.CURRENT_TIME);
         } catch (GLib.Error e) {
@@ -600,22 +641,20 @@ class AppWindow : Gtk.ApplicationWindow {
         }
     }
 
-    void on_todo_button_toggled() {
-        Gtk.TreeModel model;
-        Gtk.TreeIter iter;
-        if (preprint_view.get_selection().get_selected(out model, out iter)) {
-            string id;
-            filtered_model.get(iter, Column.ID, out id);
-            if (todo_button.active)
-                arxiv.config.get(id).tags.add("TODO");
-            else
-                arxiv.config.get(id).tags.remove("TODO");
-
-            Gtk.TreeIter child_iter;
-            filtered_model.convert_iter_to_child_iter(out child_iter, iter);
-            preprint_model.set(child_iter, Column.WEIGHT, todo_button.active ? 700:400);
-            arxiv.config_timeout.reset();
-        }
+    void on_delete() {
+        bool ok = false;
+        var msg = new Gtk.MessageDialog(this, Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.CANCEL, "%d %s about to be deleted.", selected.size, selected.size == 1 ? "preprint is" : "preprints are");
+        msg.add_button("_Delete", Gtk.ResponseType.OK);
+        msg.response.connect((response_id) => {
+            ok = response_id == Gtk.ResponseType.OK;
+            msg.destroy();
+        });
+        msg.run();
+        if (!ok)
+            return;
+        var to_delete = selected.to_array();
+        foreach (var s in to_delete)
+            arxiv.config.remove(s);
     }
 
     bool match_array(Regex re, string[] arr) throws GLib.RegexError {
@@ -628,13 +667,9 @@ class AppWindow : Gtk.ApplicationWindow {
     bool do_filter(Gtk.TreeModel model, Gtk.TreeIter iter) {
         if (search_entry.text == "")
             return true;
-        string id;
-        model.get(iter, Column.ID, out id);
-        // Inserting a row and updating the columns is not atomic...
-        if (id == null)
-            return false;
-        Entry e = arxiv.entries.get(id);
-        Status s = arxiv.config.get(id);
+        Status s;
+        model.get(iter, 0, out s);
+        Entry e = arxiv.entries.get(s.id);
         foreach (var str in search_entry.text.split(" ")) {
             if (str == "")
                 continue;
