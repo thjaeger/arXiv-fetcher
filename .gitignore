@@ -1,2 +1,7 @@
 arXiv-fetcher
 *.swp
+*.o
+*.c
+*.dep
+*.vapi
+*.stamp
