@@ -430,7 +430,10 @@ class AppWindow : Gtk.ApplicationWindow {
         hgrid.attach(search_label, hi++, 0, 1, 1);
 
         search_entry = new Gtk.Entry();
-        search_entry.changed.connect(() => { preprint_model.refilter(); });
+        search_entry.changed.connect(() => {
+            preprint_view.set_cursor(new Gtk.TreePath(), null, false);
+            preprint_model.refilter();
+        });
         search_entry.set_size_request(300,-1);
         hgrid.attach(search_entry, hi++, 0, 1, 1);
 
