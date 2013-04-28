@@ -38,12 +38,12 @@ class Status : Object, Mergable<Status> {
     private string _id;
     public string id { get { return _id; } }
     public int version;
-    public Gee.HashSet<string> tags { get; private set; }
+    public Gee.TreeSet<string> tags { get; private set; }
 
     public Status(string id, int version) {
         _id = id;
         this.version = version;
-        tags = new Gee.HashSet<string>();
+        tags = new Gee.TreeSet<string>();
     }
 
     public void set_tag(string tag) {
@@ -209,12 +209,12 @@ class Arxiv : Object {
     public Timeout config_timeout;
     const string api = "http://export.arxiv.org/api/query";
 
-    public Gee.HashMap<string, Entry> entries;
+    public Gee.TreeMap<string, Entry> entries;
     public ListModel<Status> config;
 
     public Arxiv() {
         config = new ListModel<Status>((s1, s2) => s1.id == s2.id);
-        entries = new Gee.HashMap<string, Entry>();
+        entries = new Gee.TreeMap<string, Entry>();
 
         session = new Soup.SessionAsync();
         config_timeout = new Timeout(5, save_config);
@@ -644,7 +644,6 @@ class AppWindow : Gtk.ApplicationWindow {
                 int i1 = model.get_path(iter1).get_indices()[0];
                 int i2 = model.get_path(iter2).get_indices()[0];
                 return i2 - i1;
-
         });
 
         preprint_view.set_model(preprint_model);
