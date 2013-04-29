@@ -1,9 +1,5 @@
 /* vim: set cin et sw=4 : */
 
-public interface Mergable<A> {
-    public abstract void merge(A x);
-}
-
 public class ListModel<A> : Object, Gtk.TreeModel {
     Gee.ArrayList<A> data;
     Gee.ArrayList<ulong> signals;
@@ -24,7 +20,7 @@ public class ListModel<A> : Object, Gtk.TreeModel {
     }
 
     public ListModel(EqualFunc<A>? equal_func = null) {
-        assert(typeof(A).is_a(typeof(Object)) && typeof(A).is_a(typeof(Mergable)));
+        assert(typeof(A).is_a(typeof(Object)));
         data = new Gee.ArrayList<A>(equal_func);
         signals = new Gee.ArrayList<ulong>();
         columns = new Gee.ArrayList<Column<A>>();
@@ -53,6 +49,15 @@ public class ListModel<A> : Object, Gtk.TreeModel {
         columns.add(new Column<A>(typeof(int), (x) => {
             Value v = Value(typeof(int));
             v.set_int(view(x));
+            return v;
+        }));
+        return columns.size-1;
+    }
+
+    public int add_boolean_column(View<A, bool> view) {
+        columns.add(new Column<A>(typeof(bool), (x) => {
+            Value v = Value(typeof(bool));
+            v.set_boolean(view(x));
             return v;
         }));
         return columns.size-1;

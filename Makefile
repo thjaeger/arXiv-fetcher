@@ -1,6 +1,6 @@
 .SUFFIXES:
 .SECONDARY:
-.PHONY:	all clean
+.PHONY:	all clean debug
 
 BINARY     := arXiv-fetcher
 PACKAGES   := glib-2.0 gtk+-3.0 gee-1.0 libsoup-2.4 libxml-2.0
@@ -12,10 +12,13 @@ DEPSTAMPS  := $(addsuffix .stamp,$(DEPFILES))
 OFILES     := $(patsubst %.vala,%.o,$(VALAFILES))
 CFILES     := $(patsubst %.vala,%.c,$(VALAFILES))
 PKGFLAGS   := $(addprefix --pkg ,$(PACKAGES))
-LIBS       := `pkg-config $(PACKAGES) --libs`
+LIBS       := `pkg-config $(PACKAGES) --libs` -lm
 INCLUDES   := `pkg-config $(PACKAGES) --cflags`
 
 all:	$(BINARY)
+
+debug:
+	valac -g -X -w -X -lm $(PKGFLAGS) $(VALAFILES) -o $(BINARY)
 
 arXiv-fetcher:	$(OFILES)
 	gcc $(OFILES) -o $@ $(LIBS)
