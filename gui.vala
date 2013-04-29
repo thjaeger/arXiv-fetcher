@@ -144,6 +144,7 @@ class AppWindow : Gtk.ApplicationWindow {
             if (!preprint_model.convert_child_iter_to_iter(out preprint_iter, iter))
                 return;
             preprint_view.get_selection().select_iter(preprint_iter);
+            preprint_view.set_cursor(preprint_model.get_path(preprint_iter), null, false);
         });
 
         search_entry.grab_focus();

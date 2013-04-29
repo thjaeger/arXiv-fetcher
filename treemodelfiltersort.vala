@@ -29,11 +29,11 @@ class TreeModelFilterSort : Gtk.TreeModelFilter, Gtk.TreeSortable {
 
     public new bool convert_child_iter_to_iter(out Gtk.TreeIter iter, Gtk.TreeIter child_iter) {
         Gtk.TreeIter sorted_iter;
-        if (!convert_child_iter_to_iter(out sorted_iter, child_iter)) {
+        if (!sorted_model.convert_child_iter_to_iter(out sorted_iter, child_iter)) {
             iter = Gtk.TreeIter();
             return false;
         }
-        return convert_child_iter_to_iter(out iter, sorted_iter);
+        return base.convert_child_iter_to_iter(out iter, sorted_iter);
 
     }
 
