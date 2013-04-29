@@ -3,8 +3,10 @@
 class CellRendererStar : Gtk.CellRenderer {
     public bool starred { get; set; }
 
+    public signal void toggled();
+
     public CellRendererStar(int width, int height) {
-        GLib.Object(width: width, height: height);
+        GLib.Object(width: width, height: height, mode: Gtk.CellRendererMode.ACTIVATABLE);
     }
 
     public override void get_size(Gtk.Widget widget, Gdk.Rectangle? cell_area, out int x_offset, out int y_offset, out int width, out int height) {
@@ -34,5 +36,10 @@ class CellRendererStar : Gtk.CellRenderer {
         ctx.set_line_width(0.1);
         ctx.set_source_rgba(0.0,0.0,0.0,0.8);
         ctx.stroke();
+    }
+
+    public override bool activate(Gdk.Event event, Gtk.Widget widget, string path, Gdk.Rectangle background_area, Gdk.Rectangle cell_area, Gtk.CellRendererState flags) {
+        toggled();
+        return true;
     }
 }
