@@ -32,7 +32,7 @@ class TagsPage : Gtk.Grid {
             model.get(iter, 0, out tag);
             var cell_star = cell as CellRendererStar;
             cell_star.starred = true;
-            cell_star.color = tag.color == null ? null : new RGB.with_rgb(tag.color.red, tag.color.blue, tag.color.green);
+            cell_star.color = tag.color == null ? null : new RGB.with_rgb(tag.color.red, tag.color.green, tag.color.blue);
         });
 
         var tagname_renderer = new Gtk.CellRendererText();
