@@ -30,7 +30,7 @@ arXiv-fetcher:	$(OFILES)
 	valac -C $(PKGFLAGS) --deps=$*.dep $(addprefix --use-fast-vapi=,$(patsubst $*.vapi,,$(VAPIFILES))) $< && touch $@
 
 %.o:	%.dep.stamp
-	gcc -w $(INCLUDES) -o $@ -c $*.c
+	gcc $(CFLAGS) -w $(INCLUDES) -o $@ -c $*.c
 
 include $(wildcard *.dep)
 
