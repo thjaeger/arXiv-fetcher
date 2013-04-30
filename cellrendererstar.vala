@@ -2,6 +2,7 @@
 
 class CellRendererStar : Gtk.CellRenderer {
     public bool starred { get; set; }
+    public RGB? color { get; set; }
 
     public signal void toggled();
 
@@ -28,7 +29,10 @@ class CellRendererStar : Gtk.CellRenderer {
 
         if (starred) {
             var path = ctx.copy_path();
-            ctx.set_source_rgba(1.0,1.0,0.0,1.0);
+            if (color == null)
+                ctx.set_source_rgba(1.0,1.0,0.0,1.0);
+            else
+                ctx.set_source_rgba(color.red, color.green, color.blue, 1.0);
             ctx.fill();
             ctx.append_path(path);
         }

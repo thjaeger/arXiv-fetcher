@@ -1,4 +1,3 @@
-Currently all configuration has to be done manually via a file preprints in
-~/.config/arXiv-fetcher.  Each line of the file must be an arXiv identifier
-(including a version number), followed by a space-separated list of tags.
-Only the tag TODO is interpreted so far.
+Configuration is stored in a file 'preprints' in ~/.config/arXiv-fetcher.  Each
+line of the file must be an arXiv identifier (including a version number),
+followed by a space-separated list of tags.

@@ -47,8 +47,61 @@ public class Status : Object {
         tags.remove(tag);
         tags = tags;
     }
+
+    public void rename_tag(string src, string dst) {
+        if (!tags.contains(src))
+            return;
+        tags.remove(src);
+        tags.add(dst);
+        tags = tags;
+    }
 }
 
+public class RGB : Object {
+    public double red;
+    public double green;
+    public double blue;
+
+    public RGB.with_rgb(double red, double green, double blue) {
+        this.red = red;
+        this.green = green;
+        this.blue = blue;
+    }
+}
+
+public class Tag : Object {
+    public string name { get; set; }
+    public bool bold { get; set; }
+    public Gdk.RGBA? color { get; set; }
+
+    public Tag(string name, bool bold = false, Gdk.RGBA? color = null) {
+        this.name = name;
+        this.bold = bold;
+        this.color = color;
+    }
+
+    public static const string variant_type = "(sbm(dddd))";
+
+    public Variant to_variant() {
+        Variant mcolor;
+        if (color == null) {
+            mcolor = new Variant.maybe(new VariantType("(dddd)"), null);
+        } else {
+            mcolor = new Variant.maybe(new VariantType("(dddd)"), color);
+        }
+        return new Variant.tuple(new Variant[] { name, bold, mcolor });
+    }
+
+    public Tag.from_variant(Variant v) {
+        name = (string)v.get_child_value(0);
+        bold = (bool)v.get_child_value(1);
+        var mcolor = v.get_child_value(2).get_maybe();
+        if (mcolor == null)
+            color = null;
+        else
+            color = (Gdk.RGBA)mcolor;
+    }
+}
 
 public class Data {
     public Arxiv arxiv;
@@ -56,6 +109,8 @@ public class Data {
 
     Timeout starred_timeout;
     public ListModel<Status> starred;
+    Timeout tags_timeout;
+    public Gtk.ListStore tags;
 
     public Data() {
         arxiv = new Arxiv();
@@ -64,15 +119,23 @@ public class Data {
         starred_timeout = new Timeout(5, save_starred);
         starred = new ListModel<Status>((s1, s2) => s1.id == s2.id);
 
-        read_starred();
+        load_starred();
         starred.row_inserted.connect((path, iter) => { starred_timeout.reset(); });
         starred.row_deleted.connect(path => { starred_timeout.reset(); });
         starred.row_changed.connect((path, iter) => { starred_timeout.reset(); });
 
+        tags_timeout = new Timeout(5, save_tags);
+        tags = new Gtk.ListStore(1, typeof(Tag));
+
+        load_tags();
+        tags.row_inserted.connect((path, iter) => { tags_timeout.reset(); });
+        tags.row_deleted.connect(path => { tags_timeout.reset(); });
+        tags.row_changed.connect((path, iter) => { tags_timeout.reset(); });
+
         download_preprints();
     }
 
-    void read_starred() {
+    void load_starred() {
         var file = File.new_for_path(get_starred_filename());
         if (!file.query_exists())
             return;
@@ -115,6 +178,36 @@ public class Data {
         }
     }
 
+    void load_tags() {
+        var tagnames = new Gee.TreeSet<string>();
+        Util.load_variant(get_tags_filename(), "tags", "a"+Tag.variant_type, db => {
+            for (int i = 0; i < db.n_children(); i++) {
+                Tag tag = new Tag.from_variant(db.get_child_value(i));
+                tags.insert_with_values(null, -1, 0, tag);
+                tagnames.add(tag.name);
+            }
+        });
+        starred.foreach(s => {
+            foreach (var tagname in s.tags)
+                if (!tagnames.contains(tagname)) {
+                    tags.insert_with_values(null, -1, 0, new Tag(tagname));
+                    tagnames.add(tagname);
+                }
+        });
+    }
+
+    void save_tags() {
+        Variant[] va = {};
+        tags.foreach((model, _path, iter) => {
+            Tag tag;
+            model.get(iter, 0, out tag);
+            va += tag.to_variant();
+            return false;
+        });
+        Variant db = new Variant.array(new VariantType(Tag.variant_type), va);
+        Util.save_variant(get_tags_filename(), "tags", "a"+Tag.variant_type, db);
+    }
+
     void download_preprints() {
         var ids = new Gee.ArrayList<string>();
         starred.foreach(s => {
@@ -142,4 +235,7 @@ public class Data {
         return Path.build_filename(Environment.get_user_config_dir(), prog_name, "starred");
     }
 
+    static string get_tags_filename() {
+        return Path.build_filename(Environment.get_user_config_dir(), prog_name, "tags");
+    }
 }

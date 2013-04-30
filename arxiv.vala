@@ -174,36 +174,24 @@ public class Arxiv : Object {
     }
 
     void save_preprints() {
-        // http://www.mail-archive.com/gtk-app-devel-list@gnome.org/msg17825.html
-        try {
-            var dbname = Path.build_filename(Environment.get_user_cache_dir(), prog_name, "database");
-            Variant[] va = {};
-            foreach (var ke in preprints.entries)
-                va += ke.value.get_variant();
-            Variant db = new Variant.array(new VariantType(Preprint.variant_type), va);
-            // https://mail.gnome.org/archives/vala-list/2011-June/msg00200.html
-            unowned uint8[] data = (uint8[]) db.get_data();
-            data.length = (int)db.get_size();
-            FileUtils.set_data(dbname, data);
-        } catch (Error e) {
-            stderr.printf("Error saving database: %s\n", e.message);
-        }
+        Variant[] va = {};
+        foreach (var ke in preprints.entries)
+            va += ke.value.get_variant();
+        Variant db = new Variant.array(new VariantType(Preprint.variant_type), va);
+        Util.save_variant(get_db_filename(), "database", "a"+Preprint.variant_type, db);
     }
 
     void load_preprints() {
-        try {
-            var dbname = Path.build_filename(Environment.get_user_cache_dir(), prog_name, "database");
-            uint8[] data;
-            if (FileUtils.get_data(dbname, out data)) {
-                Variant db = Variant.new_from_data<void>(new VariantType("a"+Preprint.variant_type), data, false);
-                for (int i = 0; i < db.n_children(); i++) {
-                    Preprint entry = new Preprint.from_variant(db.get_child_value(i));
-                    preprints.set(entry.id, entry);
-                }
+        Util.load_variant(get_db_filename(), "database", "a"+Preprint.variant_type, db => {
+            for (int i = 0; i < db.n_children(); i++) {
+                Preprint entry = new Preprint.from_variant(db.get_child_value(i));
+                preprints.set(entry.id, entry);
             }
-        } catch (Error e) {
-            stderr.printf("Error loading database: %s\n", e.message);
-        }
+        });
+    }
+
+    static string get_db_filename() {
+        return Path.build_filename(Environment.get_user_cache_dir(), prog_name, "database");
     }
 
     void query_n(string[] ids, int n) {

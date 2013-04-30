@@ -2,11 +2,219 @@
 
 static const string prog_name = "arXiv-fetcher";
 
+class LibraryPage : Gtk.Grid {
+
+}
+
+class TagsPage : Gtk.Grid {
+    Data data;
+
+    Gtk.CheckButton bold_button;
+    Gtk.CheckButton use_color_button;
+    Gtk.ColorButton color_button;
+    Gtk.Button remove_button;
+
+    bool updating_view = false;
+
+    Gtk.TreeView view;
+
+    public TagsPage(Data data) {
+        this.data = data;
+
+        view = new Gtk.TreeView();
+        view.set_model(data.tags);
+        view.reorderable = true;
+        view.hexpand = true;
+        view.vexpand = true;
+
+        view.insert_column_with_data_func(-1, "★", new CellRendererStar(20, 20), (column, cell, model, iter) => {
+            Tag tag;
+            model.get(iter, 0, out tag);
+            var cell_star = cell as CellRendererStar;
+            cell_star.starred = true;
+            cell_star.color = tag.color == null ? null : new RGB.with_rgb(tag.color.red, tag.color.blue, tag.color.green);
+        });
+
+        var tagname_renderer = new Gtk.CellRendererText();
+        view.insert_column_with_data_func(-1, "Tags", tagname_renderer, (column, cell, model, iter) => {
+            Tag tag;
+            model.get(iter, 0, out tag);
+            var cell_text = cell as Gtk.CellRendererText;
+            cell_text.text = tag.name;
+            cell_text.editable = true;
+        });
+
+        attach(view, 0, 0, 1, 1);
+
+        tagname_renderer.edited.connect((path, new_text) => {
+            Gtk.TreeIter iter;
+            if (!data.tags.get_iter_from_string(out iter, path))
+                return;
+            Tag tag;
+            data.tags.get(iter, 0, out tag);
+            if (new_text == "") {
+                if (tag.name == "")
+                    data.tags.remove(iter);
+                return;
+            }
+            bool exists_already = false;
+            data.tags.foreach((model, _path, iter2) => {
+                if (model.get_string_from_iter(iter) == model.get_string_from_iter(iter2))
+                    return false;
+                Tag tag2;
+                model.get(iter2, 0, out tag2);
+                if (tag2.name == new_text) {
+                    exists_already = true;
+                    return true;
+                }
+                return false;
+            });
+            if (exists_already) {
+                view.set_cursor(data.tags.get_path(iter), view.get_column(1), true);
+                return;
+            }
+            data.starred.foreach(s => s.rename_tag(tag.name, new_text));
+            tag.name = new_text;
+            data.tags.row_changed(new Gtk.TreePath.from_string(path), iter);
+        });
+
+        tagname_renderer.editing_canceled.connect(() => {
+            Gtk.TreePath path;
+            view.get_cursor(out path, null);
+            Gtk.TreeIter iter;
+            if (!data.tags.get_iter(out iter, path))
+                return;
+            Tag tag;
+            data.tags.get(iter, 0, out tag);
+            if (tag.name == "")
+                data.tags.remove(iter);
+        });
+
+        var add_button = new Gtk.Button.with_label("Add Tag");
+        add_button.hexpand = true;
+        add_button.clicked.connect(() => {
+            Gtk.TreeIter iter;
+            data.tags.insert_with_values(out iter, -1, 0, new Tag(""));
+            view.set_cursor(data.tags.get_path(iter), view.get_column(1), true);
+        });
+        attach(add_button, 0, 1, 1, 1);
+
+        remove_button = new Gtk.Button.with_label("Remove Tag");
+        remove_button.hexpand = true;
+        remove_button.clicked.connect(() => {
+            Gtk.TreeIter iter;
+            if (!view.get_selection().get_selected(null, out iter))
+                return;
+            Tag tag;
+            data.tags.get(iter, 0, out tag);
+            int count = 0;
+            data.starred.foreach(s => {
+                if (s.tags.contains(tag.name))
+                    count++;
+            });
+            bool ok = true;
+            if (count > 0) {
+                var times = count == 1 ? "once" : @"$count times";
+                var msg = new Gtk.MessageDialog(null, Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.CANCEL, "Tag '%s', which is used %s, is about to be deleted.", tag.name, times);
+                msg.add_button("_Delete Tag", Gtk.ResponseType.OK);
+                msg.response.connect((response_id) => {
+                    ok = response_id == Gtk.ResponseType.OK;
+                    msg.destroy();
+                });
+                msg.run();
+            }
+            if (!ok)
+                return;
+            data.starred.foreach(s => s.unset_tag(tag.name));
+            data.tags.remove(iter);
+        });
+        attach(remove_button, 0, 2, 1, 1);
+
+        var right = new Gtk.Grid();
+        attach(right, 1, 0, 1, 3);
+
+        bold_button = new Gtk.CheckButton.with_label("Mark as bold");
+        right.attach(bold_button, 0, 0, 1, 1);
+
+        use_color_button = new Gtk.CheckButton.with_label("Use color");
+        right.attach(use_color_button, 0, 1, 1, 1);
+
+        var color = new Gtk.Grid();
+        right.attach(color, 0, 2, 1, 1);
+
+        var color_label = new Gtk.Label("Star color:");
+        color.attach(color_label, 0, 0, 1, 1);
+        color_button = new Gtk.ColorButton();
+        color_button.set_size_request(100,-1);
+        color.attach(color_button, 1, 0, 1, 1);
+
+        view.get_selection().changed.connect(update_tag_view);
+        update_tag_view();
+
+        bold_button.toggled.connect(update_tag);
+        use_color_button.toggled.connect(update_tag);
+        color_button.color_set.connect(update_tag);
+    }
+
+    void update_tag_view() {
+        Gtk.TreeIter iter;
+        Gtk.TreeModel model;
+        if (!view.get_selection().get_selected(out model, out iter)) {
+            bold_button.sensitive = false;
+            use_color_button.sensitive = false;
+            color_button.sensitive = false;
+            remove_button.sensitive = false;
+            return;
+        }
+        Tag tag;
+        model.get(iter, 0, out tag);
+        updating_view = true;
+        bold_button.active = tag.bold;
+        use_color_button.active = tag.color != null;
+        if (tag.color != null)
+            color_button.rgba = tag.color;
+        else
+            color_button.rgba = Gdk.RGBA();
+
+        bold_button.sensitive = true;
+        use_color_button.sensitive = true;
+        color_button.sensitive = tag.color != null;
+        remove_button.sensitive = true;
+        updating_view = false;
+    }
+
+    void update_tag() {
+        if (updating_view)
+            return;
+        Gtk.TreeIter iter;
+        Gtk.TreeModel model;
+        if (!view.get_selection().get_selected(out model, out iter))
+            return;
+        Tag tag;
+        model.get(iter, 0, out tag);
+
+        if (tag.bold != bold_button.active)
+            tag.bold = bold_button.active;
+        if (use_color_button.active) {
+            if (tag.color == null || !tag.color.equal(color_button.rgba)) {
+                Gdk.RGBA color = color_button.rgba;
+                tag.color = color;
+            }
+        } else {
+            tag.color = null;
+        }
+        color_button.sensitive = tag.color != null;
+        data.tags.row_changed(model.get_path(iter), iter);
+    }
+}
+
 class AppWindow : Gtk.ApplicationWindow {
     Gtk.TreeView preprint_view;
     TreeModelFilterSort preprint_model;
     Gtk.Entry search_entry;
     Gtk.Button import_button;
+    Gtk.Grid tag_grid;
+    bool tags_changed;
 
     public Gee.ArrayList<Status> selected { get; set; }
     public Preprint? entry { get; set; }
@@ -51,23 +259,10 @@ class AppWindow : Gtk.ApplicationWindow {
         delete_button.clicked.connect(on_delete);
         hgrid.attach(delete_button, hi++, 0, 1, 1);
 
-        var todo_button = new Gtk.ToggleButton.with_mnemonic("_TODO");
-        todo_button.sensitive = false;
-        todo_button.toggled.connect(() => {
-            foreach (var s in selected) {
-                if (s.tags.contains("TODO") == todo_button.active) {
-                    // TODO stdout.printf("This is bad!\n");
-                    continue;
-                }
-                if (todo_button.active)
-                    s.set_tag("TODO");
-                else
-                    s.unset_tag("TODO");
-            }
-        });
-        todo_button.halign = Gtk.Align.END;
-        todo_button.hexpand = true;
-        hgrid.attach(todo_button, hi++, 0, 1, 1);
+        tag_grid = new Gtk.Grid();
+        tag_grid.halign = Gtk.Align.END;
+        tag_grid.hexpand = true;
+        hgrid.attach(tag_grid, hi++, 0, 1, 1);
 
         vgrid.attach(hgrid,0,0,1,1);
 
@@ -103,7 +298,18 @@ class AppWindow : Gtk.ApplicationWindow {
         scroll2.set_size_request(-1,200);
 
         vgrid.attach(paned,0,1,1,1);
-        add(vgrid);
+
+        var notebook = new Gtk.Notebook();
+        notebook.tab_pos = Gtk.PositionType.LEFT;
+        var lib_label = new Gtk.Label("Library");
+        lib_label.angle = 90;
+        notebook.append_page(vgrid, lib_label);
+
+        var tags_label = new Gtk.Label("Tags");
+        tags_label.angle = 90;
+        notebook.append_page(new TagsPage(data), tags_label);
+
+        add(notebook);
 
         destroy.connect(() => { Timeout.trigger_all(); });
 
@@ -125,18 +331,25 @@ class AppWindow : Gtk.ApplicationWindow {
         notify["selected"].connect((ss, p) => {
             entry = selected.size != 1 ? null : data.arxiv.preprints.get(selected[0].id);
             delete_button.sensitive = selected.size > 0;
-            bool? active = null;
-            foreach (var s in selected) {
-                if (active == null) {
-                    active = s.tags.contains("TODO");
-                } else if (active != s.tags.contains("TODO")) {
-                    todo_button.active = false;
-                    todo_button.sensitive = false;
-                    return;
+            int i = 0;
+            data.tags.foreach((model, _path, iter) => {
+                Tag tag;
+                model.get(iter, 0, out tag);
+                var tag_button = tag_grid.get_child_at(i++, 0) as Gtk.ToggleButton;
+                bool? active = null;
+                foreach (var s in selected) {
+                    if (active == null) {
+                        active = s.tags.contains(tag.name);
+                    } else if (active != s.tags.contains(tag.name)) {
+                        tag_button.active = false;
+                        tag_button.sensitive = false;
+                        return false;
+                    }
                 }
-            }
-            todo_button.active = active != null && active;
-            todo_button.sensitive = active != null;
+                tag_button.active = active != null && active;
+                tag_button.sensitive = active != null;
+                return false;
+            });
         });
 
         data.starred.row_inserted.connect((path, iter) => {
@@ -148,6 +361,43 @@ class AppWindow : Gtk.ApplicationWindow {
         });
 
         search_entry.grab_focus();
+
+        notebook.switch_page.connect((_page, page_num) => {
+            if (page_num == 0 && tags_changed)
+                update_tags();
+        });
+        tags_changed = true;
+        update_tags();
+
+        data.tags.row_inserted.connect((_path, _iter) => { tags_changed = true; });
+        data.tags.row_changed.connect((_path, _iter) => { tags_changed = true; });
+        data.tags.row_deleted.connect((_path) => { tags_changed = true; });
+        data.tags.rows_reordered.connect((_path, _iter, _new_order) => { tags_changed = true; });
+    }
+
+    void update_tags() {
+        tag_grid.foreach(widget => widget.destroy());
+        int hi = 0;
+        data.tags.foreach((model, _path, iter) => {
+            Tag tag;
+            model.get(iter, 0, out tag);
+            var tag_button = new Gtk.ToggleButton.with_label(tag.name); // TODO: mnemonic
+            tag_button.sensitive = false;
+            tag_button.toggled.connect(() => {
+                foreach (var s in selected) {
+                    if (s.tags.contains(tag.name) == tag_button.active)
+                        continue;
+                    if (tag_button.active)
+                        s.set_tag(tag.name);
+                    else
+                        s.unset_tag(tag.name);
+                }
+            });
+            tag_grid.attach(tag_button, hi++, 0, 1, 1);
+            return false;
+        });
+        tag_grid.show_all();
+        tags_changed = false;
     }
 
     void import_clipboard() {
@@ -198,8 +448,35 @@ class AppWindow : Gtk.ApplicationWindow {
             return string.joinv(", ", authors);
         });
         var title_column_id = data.starred.add_string_column(s => data.arxiv.preprints.get(s.id).title);
-        var weight_column_id = data.starred.add_int_column(s => s.tags.contains("TODO") ? 700 : 400);
+        var weight_column_id = data.starred.add_int_column(s => {
+            int weight = 400;
+            data.tags.foreach((model, _path, iter) => {
+                Tag tag;
+                model.get(iter, 0, out tag);
+                if (!s.tags.contains(tag.name))
+                    return false;
+                if (tag.bold)
+                    weight = 700;
+                return true;
+            });
+            return weight;
+        });
         var starred_column_id = data.starred.add_boolean_column(s => { return true; });
+        var color_column_id = data.starred.add_object_column<RGB?>(s => {
+            RGB? color = null;
+            data.tags.foreach((model, _path, iter) => {
+                Tag tag;
+                model.get(iter, 0, out tag);
+                if (tag.color == null || !s.tags.contains(tag.name))
+                    return false;
+                color = new RGB();
+                color.red = tag.color.red;
+                color.green = tag.color.green;
+                color.blue = tag.color.blue;
+                return true;
+            });
+            return color;
+        });
 
         preprint_model = new TreeModelFilterSort(data.starred);
         preprint_model.set_visible_func(do_filter);
@@ -214,7 +491,8 @@ class AppWindow : Gtk.ApplicationWindow {
         int n;
         var star_renderer = new CellRendererStar(20,20);
         n = preprint_view.insert_column_with_attributes(-1, "★", star_renderer, "starred", starred_column_id);
-        /*var star_column =*/ preprint_view.get_column(n-1);
+        var star_column = preprint_view.get_column(n-1);
+        star_column.add_attribute(star_renderer, "color", color_column_id);
 
         var authors_renderer = new Gtk.CellRendererText();
         authors_renderer.ellipsize = Pango.EllipsizeMode.END;
