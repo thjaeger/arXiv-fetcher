@@ -2,10 +2,6 @@
 
 static const string prog_name = "arXiv-fetcher";
 
-class LibraryPage : Gtk.Grid {
-
-}
-
 class TagsPage : Gtk.Grid {
     Data data;
 
@@ -208,79 +204,43 @@ class TagsPage : Gtk.Grid {
     }
 }
 
-class AppWindow : Gtk.ApplicationWindow {
-    Gtk.TreeView preprint_view;
-    TreeModelFilterSort preprint_model;
-    Gtk.Entry search_entry;
-    Gtk.Button import_button;
+abstract class PreprintPage : Gtk.Grid {
+    protected Data data;
+
+    protected Gtk.TreeView view;
+    protected Gtk.TreeModel model;
+    protected Gtk.Grid hgrid;
+
     Gtk.Grid tag_grid;
     bool tags_changed;
 
-    public Gee.ArrayList<Status> selected { get; set; }
     public Preprint? entry { get; set; }
+    public Gee.ArrayList<Status> selected { get; set; }
 
-    public Gee.Map<string, int> clipboard_idvs { get; set; }
-
-    Data data;
-
-    internal AppWindow(App app) {
-        Object (application: app, title: prog_name);
-
-        set_default_size(800,600);
-
-        data = new Data();
+    protected PreprintPage(Data data, Gtk.TreeModel model) {
+        this.data = data;
+        this.model = model;
 
         selected = new Gee.ArrayList<Status>();
-//        arxiv.update_entries();
 
-        var vgrid = new Gtk.Grid();
-        var hgrid = new Gtk.Grid();
-        int hi = 0;
-
-        var search_label = new Gtk.Label("Search: ");
-        hgrid.attach(search_label, hi++, 0, 1, 1);
-
-        search_entry = new Gtk.Entry();
-        search_entry.changed.connect(() => {
-            preprint_view.set_cursor(new Gtk.TreePath(), null, false);
-            preprint_model.refilter();
-        });
-        search_entry.set_size_request(300,-1);
-        hgrid.attach(search_entry, hi++, 0, 1, 1);
-
-        import_button = new Gtk.Button.with_mnemonic("_Paste");
-        hgrid.attach(import_button, hi++, 0, 1, 1);
 
         tag_grid = new Gtk.Grid();
         tag_grid.halign = Gtk.Align.END;
         tag_grid.hexpand = true;
-        hgrid.attach(tag_grid, hi++, 0, 1, 1);
 
-        vgrid.attach(hgrid,0,0,1,1);
+        hgrid = new Gtk.Grid();
+        hgrid.attach(tag_grid, 0, 0, 1, 1);
+
+        attach(hgrid,0,0,1,1);
 
         var paned = new Gtk.Paned(Gtk.Orientation.VERTICAL);
         paned.set_position(350);
 
-        setup_preprints();
-
-        preprint_view.expand = true;
-        preprint_view.set_size_request(750, -1);
-        preprint_view.get_selection().changed.connect(on_selection_changed);
-        preprint_view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
-        preprint_view.row_activated.connect(on_row_activated);
-
-        preprint_view.key_release_event.connect(event => {
-            if (event.keyval == Gdk.Key.Delete) {
-                foreach (var s in selected)
-                    s.deleted = true;
-                return true;
-            }
-            return false;
-        });
+        setup_view();
 
         var scroll1 = new Gtk.ScrolledWindow(null, null);
         scroll1.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
-        scroll1.add(preprint_view);
+        scroll1.add(view);
         paned.pack1(scroll1, true, true);
 
         var field_grid = new Gtk.Grid();
@@ -296,33 +256,7 @@ class AppWindow : Gtk.ApplicationWindow {
         paned.pack2(scroll2, true, true);
         scroll2.set_size_request(-1,200);
 
-        vgrid.attach(paned,0,1,1,1);
-
-        var notebook = new Gtk.Notebook();
-        notebook.tab_pos = Gtk.PositionType.LEFT;
-        var lib_label = new Gtk.Label("Library");
-        lib_label.angle = 90;
-        notebook.append_page(vgrid, lib_label);
-
-        var tags_label = new Gtk.Label("Tags");
-        tags_label.angle = 90;
-        notebook.append_page(new TagsPage(data), tags_label);
-
-        add(notebook);
-
-        delete_event.connect(event => !commit_delete(true));
-        destroy.connect(Timeout.trigger_all);
-
-        var clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_CLIPBOARD);
-        clipboard.owner_change.connect((e) => {
-            clipboard.request_text((c, text) => { clipboard_idvs = text == null ? null : Arxiv.parse_ids(text); });
-        });
-
-        notify["clipboard-idvs"].connect((s, p) => { import_button.sensitive = clipboard_idvs != null && clipboard_idvs.size != 0; });
-
-        clipboard.owner_change(new Gdk.Event(Gdk.EventType.NOTHING));
-
-        import_button.clicked.connect(import_clipboard);
+        attach(paned,0,1,1,1);
 
         notify["selected"].connect((ss, p) => {
             entry = selected.size != 1 ? null : data.arxiv.preprints.get(selected[0].id);
@@ -347,12 +281,6 @@ class AppWindow : Gtk.ApplicationWindow {
             });
         });
 
-        search_entry.grab_focus();
-
-        notebook.switch_page.connect((_page, page_num) => {
-            if (page_num == 0 && tags_changed)
-                update_tags();
-        });
         tags_changed = true;
         update_tags();
 
@@ -362,49 +290,89 @@ class AppWindow : Gtk.ApplicationWindow {
         data.tags.rows_reordered.connect((_path, _iter, _new_order) => { tags_changed = true; });
     }
 
-    void update_tags() {
-        tag_grid.foreach(widget => widget.destroy());
-        int hi = 0;
-        data.tags.foreach((model, _path, iter) => {
-            Tag tag;
-            model.get(iter, 0, out tag);
-            var tag_button = new Gtk.ToggleButton.with_label(tag.name); // TODO: mnemonic
-            tag_button.sensitive = false;
-            tag_button.toggled.connect(() => {
-                foreach (var s in selected) {
-                    if (s.tags.contains(tag.name) == tag_button.active)
-                        continue;
-                    if (tag_button.active)
-                        s.set_tag(tag.name);
-                    else
-                        s.unset_tag(tag.name);
-                }
-            });
-            tag_grid.attach(tag_button, hi++, 0, 1, 1);
-            return false;
-        });
-        tag_grid.show_all();
-        tags_changed = false;
+    protected void attach_hgrid(Gtk.Widget child) {
+        hgrid.insert_next_to(tag_grid, Gtk.PositionType.LEFT);
+        hgrid.attach_next_to(child, tag_grid, Gtk.PositionType.LEFT, 1, 1);
     }
 
-    void import_clipboard() {
-        if (clipboard_idvs == null || clipboard_idvs.size == 0)
-            return;
-        data.import(clipboard_idvs);
-        var selection = preprint_view.get_selection();
-        selection.unselect_all();
-        bool cursor_set = false;
-        preprint_model.foreach((model, path, iter) => {
+    void setup_view() {
+        view = new Gtk.TreeView();
+        view.set_model(model);
+
+        int n;
+        var star_renderer = new CellRendererStar(20,20);
+        n = view.insert_column_with_attributes(-1, "★", star_renderer, "starred", StatusList.Column.STARRED, "color", StatusList.Column.COLOR);
+        star_renderer.toggled.connect(path => {
+            Gtk.TreeIter iter;
+            if (!model.get_iter_from_string(out iter, path))
+                return;
             Status s;
             model.get(iter, 0, out s);
-            if (!clipboard_idvs.has_key(s.id))
-                return false;
-            selection.select_iter(iter);
-            if (!cursor_set)
-                preprint_view.set_cursor(model.get_path(iter), null, false);
-            cursor_set = true;
+            s.deleted = !s.deleted;
+        });
+
+        var authors_renderer = new Gtk.CellRendererText();
+        authors_renderer.ellipsize = Pango.EllipsizeMode.END;
+        n = view.insert_column_with_attributes(-1, "Author(s)", authors_renderer, "text", StatusList.Column.AUTHORS);
+        var authors_column = view.get_column(n-1);
+        authors_column.set_sizing(Gtk.TreeViewColumnSizing.FIXED);
+        authors_column.set_fixed_width(200);
+        authors_column.resizable = true;
+        authors_column.set_sort_column_id(StatusList.Column.AUTHORS);
+
+        var title_renderer = new Gtk.CellRendererText();
+        title_renderer.ellipsize = Pango.EllipsizeMode.END;
+        n = view.insert_column_with_attributes(-1, "Title", title_renderer, "text", StatusList.Column.TITLE, "weight", StatusList.Column.WEIGHT);
+        var title_column = view.get_column(n-1);
+        title_column.resizable = true;
+        title_column.set_sort_column_id(StatusList.Column.TITLE);
+
+        view.expand = true;
+        view.set_size_request(750, -1);
+        view.get_selection().changed.connect(on_selection_changed);
+        view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
+        view.row_activated.connect(on_row_activated);
+
+        view.key_release_event.connect(event => {
+            if (event.keyval == Gdk.Key.Delete) {
+                foreach (var s in selected)
+                    s.deleted = true;
+                return true;
+            }
             return false;
         });
+    }
+
+    void on_selection_changed(Gtk.TreeSelection selection) {
+        selected.clear();
+        var rows = selection.get_selected_rows(null);
+        rows.foreach(row => {
+            Gtk.TreeIter iter;
+            if (model.get_iter(out iter, row)) {
+                Status s;
+                model.get(iter, 0, out s);
+                selected.add(s);
+            }
+        });
+        selected = selected;
+    }
+
+    protected virtual string get_uri(Preprint p) {
+        return "file://" + p.get_filename();
+    }
+
+    void on_row_activated(Gtk.TreePath path, Gtk.TreeViewColumn column) {
+        Gtk.TreeIter iter;
+        if (!model.get_iter(out iter, path))
+            return;
+        Status s;
+        model.get(iter, 0, out s);
+        var uri = get_uri(data.arxiv.preprints.get(s.id));
+        try {
+            Gtk.show_uri(null, uri, Gdk.CURRENT_TIME);
+        } catch (GLib.Error e) {
+            stdout.printf("Error opening %s: %s", uri, e.message);
+        }
     }
 
     delegate string PreprintField(Preprint e);
@@ -435,146 +403,76 @@ class AppWindow : Gtk.ApplicationWindow {
             });
     }
 
-    void setup_preprints() {
-        preprint_view = new Gtk.TreeView();
-        var status_column_id = data.starred.add_object_column<Status>(s => s);
-        assert(status_column_id == 0);
-        var authors_column_id = data.starred.add_string_column(s => {
-            string[] authors = {};
-            foreach (var author in data.arxiv.preprints.get(s.id).authors) {
-                var names = author.split(" ");
-                authors += names[names.length-1];
-            }
-            return string.joinv(", ", authors);
-        });
-        var title_column_id = data.starred.add_string_column(s => data.arxiv.preprints.get(s.id).title);
-        var weight_column_id = data.starred.add_int_column(s => {
-            int weight = 400;
-            data.tags.foreach((model, _path, iter) => {
-                Tag tag;
-                model.get(iter, 0, out tag);
-                if (!s.tags.contains(tag.name))
-                    return false;
-                if (tag.bold)
-                    weight = 700;
-                return true;
+    public void update_tags() {
+        tag_grid.foreach(widget => widget.destroy());
+        int hi = 0;
+        data.tags.foreach((model, _path, iter) => {
+            Tag tag;
+            model.get(iter, 0, out tag);
+            var tag_button = new Gtk.ToggleButton.with_label(tag.name); // TODO: mnemonic
+            tag_button.sensitive = false;
+            tag_button.toggled.connect(() => {
+                foreach (var s in selected) {
+                    if (s.tags.contains(tag.name) == tag_button.active)
+                        continue;
+                    if (tag_button.active)
+                        s.set_tag(tag.name);
+                    else
+                        s.unset_tag(tag.name);
+                }
             });
-            return weight;
+            tag_grid.attach(tag_button, hi++, 0, 1, 1);
+            return false;
         });
-        var starred_column_id = data.starred.add_boolean_column(s => { return !s.deleted; });
-        var color_column_id = data.starred.add_object_column<RGB?>(s => {
-            RGB? color = null;
-            data.tags.foreach((model, _path, iter) => {
-                Tag tag;
-                model.get(iter, 0, out tag);
-                if (tag.color == null || !s.tags.contains(tag.name))
-                    return false;
-                color = new RGB();
-                color.red = tag.color.red;
-                color.green = tag.color.green;
-                color.blue = tag.color.blue;
-                return true;
-            });
-            return color;
-        });
-
-        preprint_model = new TreeModelFilterSort(data.starred);
-        preprint_model.set_visible_func(do_filter);
-        preprint_model.set_default_sort_func((model, iter1, iter2) => {
-                int i1 = model.get_path(iter1).get_indices()[0];
-                int i2 = model.get_path(iter2).get_indices()[0];
-                return i2 - i1;
-        });
-
-        preprint_view.set_model(preprint_model);
-
-        int n;
-        var star_renderer = new CellRendererStar(20,20);
-        n = preprint_view.insert_column_with_attributes(-1, "★", star_renderer, "starred", starred_column_id, "color", color_column_id);
-        star_renderer.toggled.connect(path => {
-            Gtk.TreeIter iter;
-            if (!preprint_model.get_iter_from_string(out iter, path))
-                return;
-            Status s;
-            preprint_model.get(iter, 0, out s);
-            s.deleted = !s.deleted;
-        });
-
-        var authors_renderer = new Gtk.CellRendererText();
-        authors_renderer.ellipsize = Pango.EllipsizeMode.END;
-        n = preprint_view.insert_column_with_attributes(-1, "Author(s)", authors_renderer, "text", authors_column_id);
-        var authors_column = preprint_view.get_column(n-1);
-        authors_column.set_sizing(Gtk.TreeViewColumnSizing.FIXED);
-        authors_column.set_fixed_width(200);
-        authors_column.resizable = true;
-        authors_column.set_sort_column_id(authors_column_id);
-
-        var title_renderer = new Gtk.CellRendererText();
-        title_renderer.ellipsize = Pango.EllipsizeMode.END;
-        n = preprint_view.insert_column_with_attributes(-1, "Title", title_renderer, "text", title_column_id, "weight", weight_column_id);
-        var title_column = preprint_view.get_column(n-1);
-        title_column.resizable = true;
-        title_column.set_sort_column_id(title_column_id);
+        tag_grid.show_all();
+        tags_changed = false;
     }
+}
 
-    void on_selection_changed(Gtk.TreeSelection selection) {
-        Gtk.TreeModel model;
+class LibraryPage : PreprintPage {
+    new TreeModelFilterSort model;
 
-        selected.clear();
-        var rows = selection.get_selected_rows(out model);
-        rows.foreach(row => {
-            Gtk.TreeIter iter;
-            if (model.get_iter(out iter, row)) {
-                Status s;
-                model.get(iter, 0, out s);
-                selected.add(s);
-            }
+    public Gee.Map<string, int> clipboard_idvs { get; set; }
+
+    Gtk.Entry search_entry;
+    Gtk.Button import_button;
+
+    public LibraryPage(Data data) {
+        var the_model = new TreeModelFilterSort(data.starred);
+        base(data, the_model);
+        model = the_model;
+
+        model.set_visible_func(do_filter);
+        model.set_default_sort_func((base_model, iter1, iter2) => {
+            int i1 = base_model.get_path(iter1).get_indices()[0];
+            int i2 = base_model.get_path(iter2).get_indices()[0];
+            return i2 - i1;
         });
-        selected = selected;
-    }
 
-    void on_row_activated(Gtk.TreePath path, Gtk.TreeViewColumn column) {
-        Gtk.TreeIter iter;
-        if (!preprint_model.get_iter(out iter, path))
-            return;
-        Status s;
-        preprint_model.get(iter, 0, out s);
-        var pdf = data.arxiv.preprints.get(s.id).get_filename();
-        try {
-            Gtk.show_uri(null, "file://" + pdf, Gdk.CURRENT_TIME);
-        } catch (GLib.Error e) {
-            stdout.printf("Error opening %s: %s", pdf, e.message);
-        }
-    }
+        var search_label = new Gtk.Label("Search: ");
+        attach_hgrid(search_label);
 
-    bool commit_delete(bool no) {
-        int count = 0;
-        data.starred.foreach(s => { if (s.deleted) count++; });
-        if (count == 0)
-            return true;
-        int response = 0;
-        var msg = new Gtk.MessageDialog(this, Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.CANCEL, "%d %s about to be deleted.", count, count == 1 ? "preprint is" : "preprints are");
-        msg.title = "Confirm Deletion";
-        if (no)
-            msg.add_button("Do _Not Delete", Gtk.ResponseType.NO);
-        msg.add_button("_Delete", Gtk.ResponseType.OK);
-        msg.set_default_response(Gtk.ResponseType.OK);
-        msg.response.connect(response_id => {
-            response = response_id;
-            msg.destroy();
+        search_entry = new Gtk.Entry();
+        search_entry.changed.connect(() => {
+            view.set_cursor(new Gtk.TreePath(), null, false);
+            model.refilter();
         });
-        msg.run();
-        if (response != Gtk.ResponseType.OK)
-            return response == Gtk.ResponseType.NO;
-        data.starred.remove_if(s => s.deleted);
-        return true;
-    }
+        search_entry.set_size_request(300,-1);
+        attach_hgrid(search_entry);
 
-    bool match_array(Regex re, string[] arr) throws GLib.RegexError {
-        foreach (var str in arr)
-            if (re.match(str))
-                return true;
-        return false;
+        import_button = new Gtk.Button.with_mnemonic("_Paste");
+        import_button.clicked.connect(import_clipboard);
+        attach_hgrid(import_button);
+
+        var clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_CLIPBOARD);
+        clipboard.owner_change.connect((e) => {
+            clipboard.request_text((c, text) => { clipboard_idvs = text == null ? null : Arxiv.parse_ids(text); });
+        });
+
+        notify["clipboard-idvs"].connect((s, p) => { import_button.sensitive = clipboard_idvs != null && clipboard_idvs.size != 0; });
+        clipboard.owner_change(new Gdk.Event(Gdk.EventType.NOTHING));
+
+        search_entry.grab_focus();
     }
 
     bool do_filter(Gtk.TreeModel model, Gtk.TreeIter iter) {
@@ -601,6 +499,92 @@ class AppWindow : Gtk.ApplicationWindow {
             }
         }
 
+        return true;
+    }
+
+    bool match_array(Regex re, string[] arr) throws GLib.RegexError {
+        foreach (var str in arr)
+            if (re.match(str))
+                return true;
+        return false;
+    }
+
+    protected override string get_uri(Preprint p) {
+        return p.pdf;
+    }
+
+    void import_clipboard() {
+        if (clipboard_idvs == null || clipboard_idvs.size == 0)
+            return;
+        data.import(clipboard_idvs);
+        var selection = view.get_selection();
+        selection.unselect_all();
+        bool cursor_set = false;
+        model.foreach((_model, path, iter) => {
+            Status s;
+            model.get(iter, 0, out s);
+            if (!clipboard_idvs.has_key(s.id))
+                return false;
+            selection.select_iter(iter);
+            if (!cursor_set)
+                view.set_cursor(model.get_path(iter), null, false);
+            cursor_set = true;
+            return false;
+        });
+    }
+}
+
+class AppWindow : Gtk.ApplicationWindow {
+    Data data;
+
+    internal AppWindow(App app) {
+        Object (application: app, title: prog_name);
+
+        set_default_size(800,600);
+
+        data = new Data();
+
+        var notebook = new Gtk.Notebook();
+        notebook.tab_pos = Gtk.PositionType.LEFT;
+        var lib_label = new Gtk.Label("Library");
+        lib_label.angle = 90;
+        notebook.append_page(new LibraryPage(data), lib_label);
+
+        var tags_label = new Gtk.Label("Tags");
+        tags_label.angle = 90;
+        notebook.append_page(new TagsPage(data), tags_label);
+
+        add(notebook);
+
+        delete_event.connect(event => !commit_delete(true));
+        destroy.connect(Timeout.trigger_all);
+
+        notebook.switch_page.connect((page, _page_num) => {
+            if (page is PreprintPage)
+                (page as PreprintPage).update_tags();
+        });
+    }
+
+    bool commit_delete(bool no) {
+        int count = 0;
+        data.starred.foreach(s => { if (s.deleted) count++; });
+        if (count == 0)
+            return true;
+        int response = 0;
+        var msg = new Gtk.MessageDialog(this, Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.CANCEL, "%d %s about to be deleted.", count, count == 1 ? "preprint is" : "preprints are");
+        msg.title = "Confirm Deletion";
+        if (no)
+            msg.add_button("Do _Not Delete", Gtk.ResponseType.NO);
+        msg.add_button("_Delete", Gtk.ResponseType.OK);
+        msg.set_default_response(Gtk.ResponseType.OK);
+        msg.response.connect(response_id => {
+            response = response_id;
+            msg.destroy();
+        });
+        msg.run();
+        if (response != Gtk.ResponseType.OK)
+            return response == Gtk.ResponseType.NO;
+        data.starred.remove_if(s => s.deleted);
         return true;
     }
 }

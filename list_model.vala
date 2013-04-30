@@ -27,7 +27,7 @@ public class ListModel<A> : Object, Gtk.TreeModel {
         stamp = 0;
     }
 
-    public int add_object_column<B>(View<A, B> view) {
+    public int add_object_column<B>(owned View<A, B> view) {
         columns.add(new Column<A>(typeof(B), (x) => {
             Value v = Value(typeof(B));
             v.set_object((Object)view(x));
@@ -36,7 +36,7 @@ public class ListModel<A> : Object, Gtk.TreeModel {
         return columns.size-1;
     }
 
-    public int add_string_column(View<A, string> view) {
+    public int add_string_column(owned View<A, string> view) {
         columns.add(new Column<A>(typeof(string), (x) => {
             Value v = Value(typeof(string));
             v.set_string(view(x));
@@ -45,7 +45,7 @@ public class ListModel<A> : Object, Gtk.TreeModel {
         return columns.size-1;
     }
 
-    public int add_int_column(View<A, int> view) {
+    public int add_int_column(owned View<A, int> view) {
         columns.add(new Column<A>(typeof(int), (x) => {
             Value v = Value(typeof(int));
             v.set_int(view(x));
@@ -54,7 +54,7 @@ public class ListModel<A> : Object, Gtk.TreeModel {
         return columns.size-1;
     }
 
-    public int add_boolean_column(View<A, bool> view) {
+    public int add_boolean_column(owned View<A, bool> view) {
         columns.add(new Column<A>(typeof(bool), (x) => {
             Value v = Value(typeof(bool));
             v.set_boolean(view(x));

@@ -105,6 +105,68 @@ public class Tag : Object {
     }
 }
 
+public class StatusList : ListModel<Status> {
+    public enum Column {
+        STATUS,
+        AUTHORS,
+        TITLE,
+        WEIGHT,
+        STARRED,
+        COLOR
+    }
+
+    public StatusList(Data xxxxxx) {
+        EqualFunc<Status> cmp = (s1, s2) => s1.id == s2.id;
+        base(cmp);
+
+        var status_column_id = add_object_column<Status>(s => s);
+        assert(status_column_id == Column.STATUS);
+        var authors_column_id = add_string_column(s => {
+            string[] authors = {};
+            foreach (var author in xxxxxx.arxiv.preprints.get(s.id).authors) {
+                var names = author.split(" ");
+                authors += names[names.length-1];
+            }
+            return string.joinv(", ", authors);
+        });
+        assert(authors_column_id == Column.AUTHORS);
+        var title_column_id = add_string_column(s => xxxxxx.arxiv.preprints.get(s.id).title);
+        assert(title_column_id == Column.TITLE);
+        var weight_column_id = add_int_column(s => {
+            int weight = 400;
+            xxxxxx.tags.foreach((model, _path, iter) => {
+                Tag tag;
+                model.get(iter, 0, out tag);
+                if (!s.tags.contains(tag.name))
+                    return false;
+                if (tag.bold)
+                    weight = 700;
+                return true;
+            });
+            return weight;
+        });
+        assert(weight_column_id == Column.WEIGHT);
+        var starred_column_id = add_boolean_column(s => { return !s.deleted; });
+        assert(starred_column_id == Column.STARRED);
+        var color_column_id = add_object_column<RGB?>(s => {
+            RGB? color = null;
+            xxxxxx.tags.foreach((model, _path, iter) => {
+                Tag tag;
+                model.get(iter, 0, out tag);
+                if (tag.color == null || !s.tags.contains(tag.name))
+                    return false;
+                color = new RGB();
+                color.red = tag.color.red;
+                color.green = tag.color.green;
+                color.blue = tag.color.blue;
+                return true;
+            });
+            return color;
+        });
+        assert(color_column_id == Column.COLOR);
+    }
+}
+
 public class Data {
     public Arxiv arxiv;
     public Status.Database status_db;
@@ -119,7 +181,7 @@ public class Data {
         status_db = new Status.Database();
 
         starred_timeout = new Timeout(5, save_starred);
-        starred = new ListModel<Status>((s1, s2) => s1.id == s2.id);
+        starred = new StatusList(this);
 
         load_starred();
         starred.row_inserted.connect((path, iter) => { starred_timeout.reset(); });
