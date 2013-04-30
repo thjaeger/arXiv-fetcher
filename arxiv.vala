@@ -102,7 +102,9 @@ public class Preprint {
                 MatchInfo info;
                 if (!url_id.match(i->get_content(), 0, out info))
                     continue;
-                id = Arxiv.get_id(info.fetch(1), out version);
+                var idvs = Arxiv.parse_ids(info.fetch(1), out id);
+                if (id != null)
+                    version = idvs.get(id);
             } else if (i->name == "updated") {
                 updated = i->get_content();
             } else if (i->name == "published") {
@@ -154,23 +156,35 @@ public class Arxiv : Object {
         load_preprints();
     }
 
-    public static string? get_id(string idv, out int version) {
+    public static Gee.Map<string, int> parse_ids(string idv, out string first_id = null) {
+        first_id = null;
+        var idvs = new Gee.TreeMap<string, int>();
         MatchInfo info;
-        version = 0;
 
-        if (old_format.match(idv, 0, out info)) {
-            var mv = info.fetch(3);
-            if (mv != null && mv != "")
-                version = int.parse(mv[1:mv.length]);
-            return info.fetch(1).split(".")[0] + "/" + info.fetch(2);
+        try {
+            if (old_format.match(idv, 0, out info))
+                do {
+                    var mv = info.fetch(3);
+                    var version = (mv == null || mv == "") ? 0 : int.parse(mv[1:mv.length]);
+                    var id = info.fetch(1).split(".")[0] + "/" + info.fetch(2);
+                    idvs.set(id, version);
+                    if (first_id == null)
+                        first_id = id;
+                } while (info.next());
+
+            if (new_format.match(idv, 0, out info))
+                do {
+                    var mv = info.fetch(2);
+                    var version = (mv == null || mv == "") ? 0 : int.parse(mv[1:mv.length]);
+                    var id = info.fetch(1);
+                    idvs.set(id, version);
+                    if (first_id == null)
+                        first_id = id;
+                } while (info.next());
+        } catch (RegexError e) {
+            stderr.printf("Regex error: %s\n", e.message);
         }
-        if (new_format.match(idv, 0, out info)) {
-            var mv = info.fetch(2);
-            if (mv != null && mv != "")
-                version = int.parse(mv[1:mv.length]);
-            return info.fetch(1);
-        }
-        return null;
+        return idvs;
     }
 
     void save_preprints() {

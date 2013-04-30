@@ -144,14 +144,14 @@ public class Data {
             var dis = new DataInputStream(file.read());
             string line;
             while ((line = dis.read_line(null)) != null) {
-                int version;
                 string[] words = line.split(" ");
-                string id = Arxiv.get_id(words[0], out version);
-                if (id == null) {
+                string id;
+                var idvs = Arxiv.parse_ids(words[0], out id);
+                if (idvs.size == 0) {
                     stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
                     continue;
                 }
-                var status = status_db.create(id, version);
+                var status = status_db.create(id, idvs.get(id));
                 foreach (var str in words[1:words.length])
                     status.tags.add(str);
                 starred.add(status);
@@ -222,12 +222,14 @@ public class Data {
             arxiv.preprints.get(id).download();
     }
 
-    public bool import(Status s) {
-        var ids = new Gee.ArrayList<string>();
-        ids.add(s.id);
-        arxiv.query_ids(ids);
-        arxiv.preprints.get(s.id).download();
-        starred.add(s);
+    public bool import(Gee.Map<string, int> ids) {
+        arxiv.query_ids(ids.keys);
+        foreach (var idv in ids.entries) {
+            var preprint = arxiv.preprints.get(idv.key);
+            if (preprint != null)
+                preprint.download();
+            starred.add(status_db.create(idv.key, idv.value));
+        }
         return true;
     }
 

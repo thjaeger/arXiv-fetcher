@@ -219,8 +219,7 @@ class AppWindow : Gtk.ApplicationWindow {
     public Gee.ArrayList<Status> selected { get; set; }
     public Preprint? entry { get; set; }
 
-    public string clipboard_id { get; set; }
-    int clipboard_version;
+    public Gee.Map<string, int> clipboard_idvs { get; set; }
 
     Data data;
 
@@ -311,18 +310,14 @@ class AppWindow : Gtk.ApplicationWindow {
 
         var clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_CLIPBOARD);
         clipboard.owner_change.connect((e) => {
-            clipboard.request_text((c, text) => { clipboard_id = text == null ? null : Arxiv.get_id(text, out clipboard_version); });
-        });
-        var selection_clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_PRIMARY);
-        selection_clipboard.owner_change.connect((e) => {
-            selection_clipboard.request_text((c, text) => { clipboard_id = text == null ? null : Arxiv.get_id(text, out clipboard_version); });
+            clipboard.request_text((c, text) => { clipboard_idvs = text == null ? null : Arxiv.parse_ids(text); });
         });
 
-        notify["clipboard-id"].connect((s, p) => { import_button.sensitive = clipboard_id != null; });
+        notify["clipboard-idvs"].connect((s, p) => { import_button.sensitive = clipboard_idvs != null && clipboard_idvs.size != 0; });
 
         clipboard.owner_change(new Gdk.Event(Gdk.EventType.NOTHING));
 
-        import_button.clicked.connect(() => { import_clipboard(); });
+        import_button.clicked.connect(import_clipboard);
 
         notify["selected"].connect((ss, p) => {
             entry = selected.size != 1 ? null : data.arxiv.preprints.get(selected[0].id);
@@ -346,14 +341,6 @@ class AppWindow : Gtk.ApplicationWindow {
                 tag_button.sensitive = active != null;
                 return false;
             });
-        });
-
-        data.starred.row_inserted.connect((path, iter) => {
-            Gtk.TreeIter preprint_iter;
-            if (!preprint_model.convert_child_iter_to_iter(out preprint_iter, iter))
-                return;
-            preprint_view.get_selection().select_iter(preprint_iter);
-            preprint_view.set_cursor(preprint_model.get_path(preprint_iter), null, false);
         });
 
         search_entry.grab_focus();
@@ -397,10 +384,23 @@ class AppWindow : Gtk.ApplicationWindow {
     }
 
     void import_clipboard() {
-        if (clipboard_id == null)
+        if (clipboard_idvs == null || clipboard_idvs.size == 0)
             return;
-        preprint_view.get_selection().unselect_all();
-        data.import(data.status_db.create(clipboard_id, clipboard_version));
+        data.import(clipboard_idvs);
+        var selection = preprint_view.get_selection();
+        selection.unselect_all();
+        bool cursor_set = false;
+        preprint_model.foreach((model, path, iter) => {
+            Status s;
+            model.get(iter, 0, out s);
+            if (!clipboard_idvs.has_key(s.id))
+                return false;
+            selection.select_iter(iter);
+            if (!cursor_set)
+                preprint_view.set_cursor(model.get_path(iter), null, false);
+            cursor_set = true;
+            return false;
+        });
     }
 
     delegate string PreprintField(Preprint e);
