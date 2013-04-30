@@ -80,7 +80,10 @@ public class ListModel<A> : Object, Gtk.TreeModel {
     }
 
     public bool remove(A x) {
-        int i = data.index_of(x);
+        return remove_index(data.index_of(x));
+    }
+
+    public bool remove_index(int i) {
         Gtk.TreePath path = get_path_from_index(i);
         SignalHandler.disconnect(data[i], signals[i]);
         data.remove_at(i);
@@ -88,6 +91,12 @@ public class ListModel<A> : Object, Gtk.TreeModel {
         row_deleted(path);
         stamp++;
         return true;
+    }
+
+    public void remove_if(View<A, bool> f) {
+        for (int i = data.size-1; i >= 0; i--)
+            if (f(data[i]))
+                remove_index(i);
     }
 
     public new void foreach(Func<A> f) {

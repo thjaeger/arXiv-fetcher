@@ -4,6 +4,7 @@ public class Status : Object {
     public string id { get; private set; }
     public int version;
     public Gee.TreeSet<string> tags { get; private set; }
+    public bool deleted { get; set; }
 
     private Database db;
 
@@ -28,6 +29,7 @@ public class Status : Object {
         this.id = id;
         this.version = version;
         tags = new Gee.TreeSet<string>();
+        deleted = false;
     }
 
     ~Status() {

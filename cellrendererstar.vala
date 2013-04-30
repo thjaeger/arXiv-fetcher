@@ -4,7 +4,7 @@ class CellRendererStar : Gtk.CellRenderer {
     public bool starred { get; set; }
     public RGB? color { get; set; }
 
-    public signal void toggled();
+    public signal void toggled(string path);
 
     public CellRendererStar(int width, int height) {
         GLib.Object(width: width, height: height, mode: Gtk.CellRendererMode.ACTIVATABLE);
@@ -43,7 +43,7 @@ class CellRendererStar : Gtk.CellRenderer {
     }
 
     public override bool activate(Gdk.Event event, Gtk.Widget widget, string path, Gdk.Rectangle background_area, Gdk.Rectangle cell_area, Gtk.CellRendererState flags) {
-        toggled();
+        toggled(path);
         return true;
     }
 }

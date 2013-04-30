@@ -251,11 +251,6 @@ class AppWindow : Gtk.ApplicationWindow {
         import_button = new Gtk.Button.with_mnemonic("_Paste");
         hgrid.attach(import_button, hi++, 0, 1, 1);
 
-        var delete_button = new Gtk.Button.with_mnemonic("_Delete");
-        delete_button.sensitive = false;
-        delete_button.clicked.connect(on_delete);
-        hgrid.attach(delete_button, hi++, 0, 1, 1);
-
         tag_grid = new Gtk.Grid();
         tag_grid.halign = Gtk.Align.END;
         tag_grid.hexpand = true;
@@ -273,6 +268,15 @@ class AppWindow : Gtk.ApplicationWindow {
         preprint_view.get_selection().changed.connect(on_selection_changed);
         preprint_view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE);
         preprint_view.row_activated.connect(on_row_activated);
+
+        preprint_view.key_release_event.connect(event => {
+            if (event.keyval == Gdk.Key.Delete) {
+                foreach (var s in selected)
+                    s.deleted = true;
+                return true;
+            }
+            return false;
+        });
 
         var scroll1 = new Gtk.ScrolledWindow(null, null);
         scroll1.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
@@ -306,7 +310,8 @@ class AppWindow : Gtk.ApplicationWindow {
 
         add(notebook);
 
-        destroy.connect(() => { Timeout.trigger_all(); });
+        delete_event.connect(event => !commit_delete(true));
+        destroy.connect(Timeout.trigger_all);
 
         var clipboard = Gtk.Clipboard.get_for_display(get_display(), Gdk.SELECTION_CLIPBOARD);
         clipboard.owner_change.connect((e) => {
@@ -321,7 +326,6 @@ class AppWindow : Gtk.ApplicationWindow {
 
         notify["selected"].connect((ss, p) => {
             entry = selected.size != 1 ? null : data.arxiv.preprints.get(selected[0].id);
-            delete_button.sensitive = selected.size > 0;
             int i = 0;
             data.tags.foreach((model, _path, iter) => {
                 Tag tag;
@@ -457,7 +461,7 @@ class AppWindow : Gtk.ApplicationWindow {
             });
             return weight;
         });
-        var starred_column_id = data.starred.add_boolean_column(s => { return true; });
+        var starred_column_id = data.starred.add_boolean_column(s => { return !s.deleted; });
         var color_column_id = data.starred.add_object_column<RGB?>(s => {
             RGB? color = null;
             data.tags.foreach((model, _path, iter) => {
@@ -486,9 +490,15 @@ class AppWindow : Gtk.ApplicationWindow {
 
         int n;
         var star_renderer = new CellRendererStar(20,20);
-        n = preprint_view.insert_column_with_attributes(-1, "★", star_renderer, "starred", starred_column_id);
-        var star_column = preprint_view.get_column(n-1);
-        star_column.add_attribute(star_renderer, "color", color_column_id);
+        n = preprint_view.insert_column_with_attributes(-1, "★", star_renderer, "starred", starred_column_id, "color", color_column_id);
+        star_renderer.toggled.connect(path => {
+            Gtk.TreeIter iter;
+            if (!preprint_model.get_iter_from_string(out iter, path))
+                return;
+            Status s;
+            preprint_model.get(iter, 0, out s);
+            s.deleted = !s.deleted;
+        });
 
         var authors_renderer = new Gtk.CellRendererText();
         authors_renderer.ellipsize = Pango.EllipsizeMode.END;
@@ -501,11 +511,10 @@ class AppWindow : Gtk.ApplicationWindow {
 
         var title_renderer = new Gtk.CellRendererText();
         title_renderer.ellipsize = Pango.EllipsizeMode.END;
-        n = preprint_view.insert_column_with_attributes(-1, "Title", title_renderer, "text", title_column_id);
+        n = preprint_view.insert_column_with_attributes(-1, "Title", title_renderer, "text", title_column_id, "weight", weight_column_id);
         var title_column = preprint_view.get_column(n-1);
         title_column.resizable = true;
         title_column.set_sort_column_id(title_column_id);
-        title_column.add_attribute(title_renderer, "weight", weight_column_id);
     }
 
     void on_selection_changed(Gtk.TreeSelection selection) {
@@ -538,20 +547,27 @@ class AppWindow : Gtk.ApplicationWindow {
         }
     }
 
-    void on_delete() {
-        bool ok = false;
-        var msg = new Gtk.MessageDialog(this, Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.CANCEL, "%d %s about to be deleted.", selected.size, selected.size == 1 ? "preprint is" : "preprints are");
+    bool commit_delete(bool no) {
+        int count = 0;
+        data.starred.foreach(s => { if (s.deleted) count++; });
+        if (count == 0)
+            return true;
+        int response = 0;
+        var msg = new Gtk.MessageDialog(this, Gtk.DialogFlags.MODAL, Gtk.MessageType.INFO, Gtk.ButtonsType.CANCEL, "%d %s about to be deleted.", count, count == 1 ? "preprint is" : "preprints are");
+        msg.title = "Confirm Deletion";
+        if (no)
+            msg.add_button("Do _Not Delete", Gtk.ResponseType.NO);
         msg.add_button("_Delete", Gtk.ResponseType.OK);
-        msg.response.connect((response_id) => {
-            ok = response_id == Gtk.ResponseType.OK;
+        msg.set_default_response(Gtk.ResponseType.OK);
+        msg.response.connect(response_id => {
+            response = response_id;
             msg.destroy();
         });
         msg.run();
-        if (!ok)
-            return;
-        var to_delete = selected.to_array();
-        foreach (var s in to_delete)
-            data.starred.remove(s);
+        if (response != Gtk.ResponseType.OK)
+            return response == Gtk.ResponseType.NO;
+        data.starred.remove_if(s => s.deleted);
+        return true;
     }
 
     bool match_array(Regex re, string[] arr) throws GLib.RegexError {
