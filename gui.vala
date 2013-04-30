@@ -234,8 +234,6 @@ class AppWindow : Gtk.ApplicationWindow {
         selected = new Gee.ArrayList<Status>();
 //        arxiv.update_entries();
 
-        border_width = 10;
-
         var vgrid = new Gtk.Grid();
         var hgrid = new Gtk.Grid();
         int hi = 0;
@@ -267,6 +265,7 @@ class AppWindow : Gtk.ApplicationWindow {
         vgrid.attach(hgrid,0,0,1,1);
 
         var paned = new Gtk.Paned(Gtk.Orientation.VERTICAL);
+        paned.set_position(350);
 
         setup_preprints();
 
@@ -277,11 +276,9 @@ class AppWindow : Gtk.ApplicationWindow {
         preprint_view.row_activated.connect(on_row_activated);
 
         var scroll1 = new Gtk.ScrolledWindow(null, null);
-        scroll1.set_border_width(10);
         scroll1.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
         scroll1.add(preprint_view);
         paned.pack1(scroll1, true, true);
-        scroll1.set_size_request(-1,350);
 
         var field_grid = new Gtk.Grid();
         add_field(field_grid, "Author(s)", e => string.joinv(", ", e.authors));
@@ -291,7 +288,6 @@ class AppWindow : Gtk.ApplicationWindow {
         add_field(field_grid, "ArXiv ID", e => "<a href=\"%s\">%sv%d</a>".printf(e.arxiv, e.id, e.version), true);
 
         var scroll2 = new Gtk.ScrolledWindow(null, null);
-        scroll2.set_border_width(10);
         scroll2.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC);
         scroll2.add_with_viewport(field_grid);
         paned.pack2(scroll2, true, true);
