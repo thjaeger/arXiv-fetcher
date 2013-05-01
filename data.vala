@@ -2,7 +2,7 @@
 
 public class Status : Object {
     public string id { get; private set; }
-    public int version;
+    public int version { get; set; }
     public Gee.TreeSet<string> tags { get; private set; }
     public bool deleted { get; set; }
 

@@ -431,6 +431,7 @@ abstract class PreprintPage : Gtk.Grid {
 
 class UpdatesPage : PreprintPage {
     new TreeModelFilterSort model;
+    Gtk.Button ack_button;
 
     public Gee.Map<string, int> clipboard_idvs { get; set; }
 
@@ -450,6 +451,25 @@ class UpdatesPage : PreprintPage {
         var update_button = new Gtk.Button.with_label("Check for updates");
         attach_hgrid(update_button);
         update_button.clicked.connect(() => data.download_preprints(true));
+
+        ack_button = new Gtk.Button();
+        attach_hgrid(ack_button);
+        ack_button.clicked.connect(() => {
+            if (selected.size > 0)
+                foreach (var s in selected)
+                    s.version = data.arxiv.preprints.get(s.id).version;
+            else
+                data.starred.foreach(s => {
+                    s.version = data.arxiv.preprints.get(s.id).version;
+                });
+        });
+        notify["selected"].connect((ss, p) => {
+            if (selected.size > 0)
+                ack_button.label = "Acknowledge selected updates";
+            else
+                ack_button.label = "Acknowledge all updates";
+        });
+        selected = selected;
     }
 
     bool do_filter(Gtk.TreeModel model, Gtk.TreeIter iter) {
