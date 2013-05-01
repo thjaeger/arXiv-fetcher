@@ -429,6 +429,38 @@ abstract class PreprintPage : Gtk.Grid {
     }
 }
 
+class UpdatesPage : PreprintPage {
+    new TreeModelFilterSort model;
+
+    public Gee.Map<string, int> clipboard_idvs { get; set; }
+
+    public UpdatesPage(Data data) {
+        var the_model = new TreeModelFilterSort(data.starred);
+        base(data, the_model);
+        model = the_model;
+
+        model.set_visible_func(do_filter);
+        model.refilter();
+        model.set_default_sort_func((base_model, iter1, iter2) => {
+            int i1 = base_model.get_path(iter1).get_indices()[0];
+            int i2 = base_model.get_path(iter2).get_indices()[0];
+            return i2 - i1;
+        });
+    }
+
+    bool do_filter(Gtk.TreeModel model, Gtk.TreeIter iter) {
+        Status s;
+        model.get(iter, 0, out s);
+        Preprint e = data.arxiv.preprints.get(s.id);
+        stdout.printf("%d, %d\n", e.version, s.version);
+        return e.version > s.version;
+    }
+
+    protected override string get_uri(Preprint p) {
+        return p.pdf;
+    }
+}
+
 class LibraryPage : PreprintPage {
     new TreeModelFilterSort model;
 
@@ -546,9 +578,14 @@ class AppWindow : Gtk.ApplicationWindow {
 
         var notebook = new Gtk.Notebook();
         notebook.tab_pos = Gtk.PositionType.LEFT;
+
         var lib_label = new Gtk.Label("Library");
         lib_label.angle = 90;
         notebook.append_page(new LibraryPage(data), lib_label);
+
+        var updates_label = new Gtk.Label("Updates");
+        updates_label.angle = 90;
+        notebook.append_page(new UpdatesPage(data), updates_label);
 
         var tags_label = new Gtk.Label("Tags");
         tags_label.angle = 90;
