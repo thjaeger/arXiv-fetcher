@@ -446,13 +446,16 @@ class UpdatesPage : PreprintPage {
             int i2 = base_model.get_path(iter2).get_indices()[0];
             return i2 - i1;
         });
+
+        var update_button = new Gtk.Button.with_label("Check for updates");
+        attach_hgrid(update_button);
+        update_button.clicked.connect(() => data.download_preprints(true));
     }
 
     bool do_filter(Gtk.TreeModel model, Gtk.TreeIter iter) {
         Status s;
         model.get(iter, 0, out s);
         Preprint e = data.arxiv.preprints.get(s.id);
-        stdout.printf("%d, %d\n", e.version, s.version);
         return e.version > s.version;
     }
 }

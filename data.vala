@@ -272,10 +272,10 @@ public class Data {
         Util.save_variant(get_tags_filename(), "tags", "a"+Tag.variant_type, db);
     }
 
-    void download_preprints() {
+    public void download_preprints(bool update = false) {
         var ids = new Gee.ArrayList<string>();
         starred.foreach(s => {
-            if (!arxiv.preprints.has_key(s.id))
+            if (update || !arxiv.preprints.has_key(s.id))
                 ids.add(s.id);
         });
         if (ids.is_empty)
