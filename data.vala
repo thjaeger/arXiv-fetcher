@@ -15,19 +15,20 @@ public class Status : Object {
             db = new Gee.HashMap<string, weak Status>();
         }
 
-        public Status create(string id, int version) {
+        public Status create(string id, int version, bool deleted) {
             if (db.has_key(id))
                 return db.get(id);
-            Status s = new Status(this, id, version);
+            Status s = new Status(this, id, version, deleted);
             db.set(id, s);
             return s;
         }
     }
 
-    Status(Database db, string id, int version) {
+    Status(Database db, string id, int version, bool deleted) {
         this.db = db;
         this.id = id;
         this.version = version;
+        this.deleted = deleted;
         tags = new Gee.TreeSet<string>();
         deleted = false;
     }
@@ -215,7 +216,7 @@ public class Data {
                     stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
                     continue;
                 }
-                var status = status_db.create(id, idvs.get(id));
+                var status = status_db.create(id, idvs.get(id), false);
                 foreach (var str in words[1:words.length])
                     status.tags.add(str);
                 starred.add(status);
@@ -292,7 +293,7 @@ public class Data {
             var preprint = arxiv.preprints.get(idv.key);
             if (preprint != null)
                 preprint.download();
-            starred.add(status_db.create(idv.key, idv.value));
+            starred.add(status_db.create(idv.key, idv.value, false));
         }
         return true;
     }

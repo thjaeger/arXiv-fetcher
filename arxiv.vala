@@ -208,16 +208,15 @@ public class Arxiv : Object {
         return Path.build_filename(Environment.get_user_cache_dir(), prog_name, "database");
     }
 
-    void query_n(string[] ids, int n) {
-        var query = api + @"?max_results=$n&id_list=" + string.joinv(",", ids);
-        stdout.printf("%s\n", query);
+    Gee.Collection<string> query(string query_string) {
+        var ids = new Gee.ArrayList<string>();
 
-        var message = new Soup.Message("GET", query);
+        var message = new Soup.Message("GET", api + "?" + query_string);
         session.send_message(message);
 
         Xml.Doc* doc = Xml.Parser.parse_doc((string)message.response_body.data);
         if (doc == null)
-            return;
+            return ids;
 
         Xml.Node* feed = doc->get_root_element();
         if (feed->name == "feed") {
@@ -227,9 +226,11 @@ public class Arxiv : Object {
                     if (entry.id == null)
                         error("Got invalid response from arXiv\n");
                     preprints.set(entry.id, entry);
+                    ids.add(entry.id);
                 }
         }
         delete doc;
+        return ids;
     }
 
     public void query_ids(Gee.Collection<string> ids) {
@@ -239,13 +240,19 @@ public class Arxiv : Object {
         foreach (var id in ids) {
             ids_array += id;
             if (ids_array.length == n) {
-                query_n(ids_array, n);
+                query(@"max_results=$n&id_list=" + string.joinv(",", ids_array));
                 ids_array = {};
                 Thread.usleep(3000000);
             }
         }
-        query_n(ids_array, n);
+        query(@"?max_results=$n&id_list=" + string.joinv(",", ids_array));
         preprints_timeout.reset();
+    }
+
+    public Gee.Collection<string> search(string search_string) {
+        var q = Soup.Form.encode("max_results", "100", "search_query", search_string);
+        stdout.printf("search: %s\n", q);
+        return query(q);
     }
 
     public static const string[] subjects = {

@@ -309,6 +309,8 @@ abstract class PreprintPage : Gtk.Grid {
             Status s;
             model.get(iter, 0, out s);
             s.deleted = !s.deleted;
+            if (!s.deleted && data.starred.add(s))
+                data.arxiv.preprints.get(s.id).download();
         });
 
         var authors_renderer = new Gtk.CellRendererText();
@@ -357,8 +359,11 @@ abstract class PreprintPage : Gtk.Grid {
         selected = selected;
     }
 
-    protected virtual string get_uri(Preprint p) {
-        return "file://" + p.get_filename();
+    protected virtual string get_uri(Preprint p, Status s) {
+        if (s.deleted)
+            return p.pdf;
+        else
+            return "file://" + p.get_filename();
     }
 
     void on_row_activated(Gtk.TreePath path, Gtk.TreeViewColumn column) {
@@ -367,7 +372,7 @@ abstract class PreprintPage : Gtk.Grid {
             return;
         Status s;
         model.get(iter, 0, out s);
-        var uri = get_uri(data.arxiv.preprints.get(s.id));
+        var uri = get_uri(data.arxiv.preprints.get(s.id), s);
         try {
             Gtk.show_uri(null, uri, Gdk.CURRENT_TIME);
         } catch (GLib.Error e) {
@@ -432,8 +437,6 @@ abstract class PreprintPage : Gtk.Grid {
 class UpdatesPage : PreprintPage {
     new TreeModelFilterSort model;
     Gtk.Button ack_button;
-
-    public Gee.Map<string, int> clipboard_idvs { get; set; }
 
     public UpdatesPage(Data data) {
         var the_model = new TreeModelFilterSort(data.starred);
@@ -560,7 +563,7 @@ class LibraryPage : PreprintPage {
         return false;
     }
 
-    protected override string get_uri(Preprint p) {
+    protected override string get_uri(Preprint p, Status s) {
         return p.pdf;
     }
 
@@ -585,6 +588,34 @@ class LibraryPage : PreprintPage {
     }
 }
 
+class SearchPage : PreprintPage {
+    new Gtk.TreeModelSort model;
+    StatusList results;
+
+    Gtk.Entry search_entry;
+
+    public SearchPage(Data data) {
+        var the_results = new StatusList(data);
+        var the_model = new Gtk.TreeModelSort.with_model(the_results);
+        base(data, the_model);
+        model = the_model;
+        results = the_results;
+
+        var search_label = new Gtk.Label("Search: ");
+        attach_hgrid(search_label);
+
+        search_entry = new Gtk.Entry();
+        search_entry.activate.connect(() => {
+            results.remove_if(s => true);
+            Gee.Collection<string> ids = data.arxiv.search(search_entry.text);
+            foreach (var id in ids)
+                results.add(data.status_db.create(id, data.arxiv.preprints.get(id).version, true));
+        });
+        search_entry.set_size_request(300,-1);
+        attach_hgrid(search_entry);
+    }
+}
+
 class AppWindow : Gtk.ApplicationWindow {
     Data data;
 
@@ -605,6 +636,10 @@ class AppWindow : Gtk.ApplicationWindow {
         var updates_label = new Gtk.Label("Updates");
         updates_label.angle = 90;
         notebook.append_page(new UpdatesPage(data), updates_label);
+
+        var search_label = new Gtk.Label("Search");
+        search_label.angle = 90;
+        notebook.append_page(new SearchPage(data), search_label);
 
         var tags_label = new Gtk.Label("Tags");
         tags_label.angle = 90;
