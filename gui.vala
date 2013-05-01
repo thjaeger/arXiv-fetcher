@@ -588,12 +588,12 @@ class LibraryPage : PreprintPage {
 class AppWindow : Gtk.ApplicationWindow {
     Data data;
 
-    internal AppWindow(App app) {
+    internal AppWindow(App app, Data data) {
         Object (application: app, title: prog_name);
 
         set_default_size(800,600);
 
-        data = new Data();
+        this.data = data;
 
         var notebook = new Gtk.Notebook();
         notebook.tab_pos = Gtk.PositionType.LEFT;
@@ -646,12 +646,18 @@ class AppWindow : Gtk.ApplicationWindow {
 }
 
 class App : Gtk.Application {
+    Data data;
+
     protected override void activate() {
-        new AppWindow(this).show_all();
+        new AppWindow(this, data).show_all();
     }
 
     internal App() {
         Object(application_id: @"org.$prog_name.$prog_name");
+    }
+
+    construct {
+        data = new Data();
     }
 }
 
