@@ -166,6 +166,36 @@ public class StatusList : ListModel<Status> {
         });
         assert(color_column_id == Column.COLOR);
     }
+
+    public void load(Status.Database status_db, string filename, string description) {
+        Util.load_lines(filename, description, line => {
+            string[] words = line.split(" ");
+            string id;
+            var idvs = Arxiv.parse_ids(words[0], out id);
+            if (idvs.size == 0) {
+                stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
+                return;
+            }
+            var status = status_db.create(id, idvs.get(id), false);
+            foreach (var str in words[1:words.length])
+                status.tags.add(str);
+            add(status);
+        });
+    }
+
+    public void save(string filename, string description) {
+        var contents = new StringBuilder();
+        @foreach(s => {
+            contents.append(s.id);
+            if (s.version > 0)
+                contents.append_printf("v%d", s.version);
+            foreach (var tag in s.tags)
+                contents.append(" " + tag);
+            contents.append_c('\n');
+        });
+        Util.save_contents(filename, description, contents.str);
+    }
+
 }
 
 public class Data {
@@ -173,7 +203,7 @@ public class Data {
     public Status.Database status_db;
 
     Timeout starred_timeout;
-    public ListModel<Status> starred;
+    public StatusList starred;
     Timeout tags_timeout;
     public Gtk.ListStore tags;
     public Timeout searches_timeout;
@@ -183,10 +213,10 @@ public class Data {
         arxiv = new Arxiv();
         status_db = new Status.Database();
 
-        starred_timeout = new Timeout(5, save_starred);
+        starred_timeout = new Timeout(5, () => starred.save(get_starred_filename(), "library"));
         starred = new StatusList(this);
+        starred.load(status_db, get_starred_filename(), "library");
 
-        load_starred();
         starred.row_inserted.connect((path, iter) => { starred_timeout.reset(); });
         starred.row_deleted.connect(path => { starred_timeout.reset(); });
         starred.row_changed.connect((path, iter) => { starred_timeout.reset(); });
@@ -203,49 +233,6 @@ public class Data {
         load_searches();
 
         download_preprints();
-    }
-
-    void load_starred() {
-        var file = File.new_for_path(get_starred_filename());
-        if (!file.query_exists())
-            return;
-
-        try {
-            var dis = new DataInputStream(file.read());
-            string line;
-            while ((line = dis.read_line(null)) != null) {
-                string[] words = line.split(" ");
-                string id;
-                var idvs = Arxiv.parse_ids(words[0], out id);
-                if (idvs.size == 0) {
-                    stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
-                    continue;
-                }
-                var status = status_db.create(id, idvs.get(id), false);
-                foreach (var str in words[1:words.length])
-                    status.tags.add(str);
-                starred.add(status);
-            }
-        } catch (Error e) {
-            stderr.printf("Error reading config file: %s\n", e.message);
-        }
-    }
-
-    void save_starred() {
-        var contents = new StringBuilder();
-        starred.foreach(s => {
-            contents.append(s.id);
-            if (s.version > 0)
-                contents.append_printf("v%d", s.version);
-            foreach (var tag in s.tags)
-                contents.append(" " + tag);
-            contents.append_c('\n');
-        });
-        try {
-            FileUtils.set_contents(get_starred_filename(), contents.str);
-        } catch (Error e) {
-            stderr.printf("Error saving config file: %s\n", e.message);
-        }
     }
 
     void load_tags() {
@@ -280,26 +267,14 @@ public class Data {
 
     void load_searches() {
         searches = new Gee.ArrayList<string>();
-        try {
-            string contents;
-            if (FileUtils.get_contents(get_searches_filename(), out contents))
-                foreach (var search in contents.split("\n"))
-                    if (search != "")
-                        searches.add(search);
-        } catch (FileError e) {
-            stderr.printf("Error loaded watched searches: %s\n", e.message);
-        }
+        Util.load_lines(get_searches_filename(), "watched searches", s => searches.add(s));
     }
 
     void save_searches() {
         var contents = new StringBuilder();
         foreach (var s in searches)
             contents.append_printf("%s\n", s);
-        try {
-            FileUtils.set_contents(get_searches_filename(), contents.str);
-        } catch (FileError e) {
-            stderr.printf("Error saving watched searches: %s\n", e.message);
-        }
+        Util.save_contents(get_searches_filename(), "watched searches", contents.str);
     }
 
     public void download_preprints(bool update = false) {
