@@ -16,6 +16,12 @@ public class Preprint {
         categories = new string[] { "" };
     }
 
+    public Preprint.dummy(string id) {
+        this();
+        title = id;
+        this.id = id;
+    }
+
     public string id;
     public int version;
     public string updated;
@@ -59,7 +65,7 @@ public class Preprint {
         categories = (string[])v.get_child_value(i++);
     }
 
-    public string get_filename() {
+    public string get_filename(int version) {
         return Path.build_filename(
                 Environment.get_user_cache_dir(),
                 prog_name,
@@ -70,7 +76,9 @@ public class Preprint {
     }
 
     public bool download() {
-        var filename = get_filename();
+        if (pdf == null || pdf == "")
+            return false;
+        var filename = get_filename(version);
         var file = File.new_for_path(filename);
         var dir = file.get_parent();
         try {
@@ -142,7 +150,7 @@ public class Preprint {
 }
 
 
-public class Arxiv : Object {
+public class Arxiv {
     public static Regex old_format;
     public static Regex new_format;
 
@@ -157,6 +165,11 @@ public class Arxiv : Object {
         preprints_timeout = new Timeout(10, save_preprints);
         preprints = new Gee.HashMap<string, Preprint>();
         load_preprints();
+    }
+
+    public Preprint @get(string id) {
+        Preprint? p = preprints.get(id);
+        return p ?? new Preprint.dummy(id);
     }
 
     public static Gee.Map<string, int> parse_ids(string idv, out string first_id = null) {
@@ -250,7 +263,7 @@ public class Arxiv : Object {
                 Thread.usleep(3000000);
             }
         }
-        query(@"?max_results=$n&id_list=" + string.joinv(",", ids_array));
+        query(@"max_results=$n&id_list=" + string.joinv(",", ids_array));
         preprints_timeout.reset();
     }
 

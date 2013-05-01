@@ -116,7 +116,7 @@ public class StatusList : ListModel<Status> {
         COLOR
     }
 
-    public StatusList(Data xxxxxx) {
+    public StatusList(Data data) {
         EqualFunc<Status> cmp = (s1, s2) => s1.id == s2.id;
         base(cmp);
 
@@ -124,18 +124,18 @@ public class StatusList : ListModel<Status> {
         assert(status_column_id == Column.STATUS);
         var authors_column_id = add_string_column(s => {
             string[] authors = {};
-            foreach (var author in xxxxxx.arxiv.preprints.get(s.id).authors) {
+            foreach (var author in data.arxiv.get(s.id).authors) {
                 var names = author.split(" ");
                 authors += names[names.length-1];
             }
             return string.joinv(", ", authors);
         });
         assert(authors_column_id == Column.AUTHORS);
-        var title_column_id = add_string_column(s => xxxxxx.arxiv.preprints.get(s.id).title);
+        var title_column_id = add_string_column(s => data.arxiv.get(s.id).title);
         assert(title_column_id == Column.TITLE);
         var weight_column_id = add_int_column(s => {
             int weight = 400;
-            xxxxxx.tags.foreach((model, _path, iter) => {
+            data.tags.foreach((model, _path, iter) => {
                 Tag tag;
                 model.get(iter, 0, out tag);
                 if (!s.tags.contains(tag.name))
@@ -151,7 +151,7 @@ public class StatusList : ListModel<Status> {
         assert(starred_column_id == Column.STARRED);
         var color_column_id = add_object_column<RGB?>(s => {
             RGB? color = null;
-            xxxxxx.tags.foreach((model, _path, iter) => {
+            data.tags.foreach((model, _path, iter) => {
                 Tag tag;
                 model.get(iter, 0, out tag);
                 if (tag.color == null || !s.tags.contains(tag.name))
@@ -288,15 +288,13 @@ public class Data {
         arxiv.query_ids(ids);
 
         foreach (var id in ids)
-            arxiv.preprints.get(id).download();
+            arxiv.get(id).download();
     }
 
     public bool import(Gee.Map<string, int> ids) {
         arxiv.query_ids(ids.keys);
         foreach (var idv in ids.entries) {
-            var preprint = arxiv.preprints.get(idv.key);
-            if (preprint != null)
-                preprint.download();
+            arxiv.get(idv.key).download();
             starred.add(status_db.create(idv.key, idv.value, false));
         }
         return true;

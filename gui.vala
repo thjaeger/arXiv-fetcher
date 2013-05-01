@@ -264,7 +264,7 @@ abstract class PreprintPage : Page {
         attach(paned,0,1,1,1);
 
         notify["selected"].connect((ss, p) => {
-            entry = selected.size != 1 ? null : data.arxiv.preprints.get(selected[0].id);
+            entry = selected.size != 1 ? null : data.arxiv.get(selected[0].id);
             int i = 0;
             data.tags.foreach((model, _path, iter) => {
                 Tag tag;
@@ -315,7 +315,7 @@ abstract class PreprintPage : Page {
             model.get(iter, 0, out s);
             s.deleted = !s.deleted;
             if (!s.deleted && data.starred.add(s))
-                data.arxiv.preprints.get(s.id).download();
+                data.arxiv.get(s.id).download();
         });
 
         var authors_renderer = new Gtk.CellRendererText();
@@ -368,7 +368,7 @@ abstract class PreprintPage : Page {
         if (s.deleted)
             return p.pdf;
         else
-            return "file://" + p.get_filename();
+            return "file://" + p.get_filename(int.max(p.version, s.version));
     }
 
     void on_row_activated(Gtk.TreePath path, Gtk.TreeViewColumn column) {
@@ -377,7 +377,7 @@ abstract class PreprintPage : Page {
             return;
         Status s;
         model.get(iter, 0, out s);
-        var uri = get_uri(data.arxiv.preprints.get(s.id), s);
+        var uri = get_uri(data.arxiv.get(s.id), s);
         try {
             Gtk.show_uri(null, uri, Gdk.CURRENT_TIME);
         } catch (GLib.Error e) {
@@ -471,10 +471,10 @@ class UpdatesPage : PreprintPage {
         ack_button.clicked.connect(() => {
             if (selected.size > 0)
                 foreach (var s in selected)
-                    s.version = data.arxiv.preprints.get(s.id).version;
+                    s.version = data.arxiv.get(s.id).version;
             else
                 data.starred.foreach(s => {
-                    s.version = data.arxiv.preprints.get(s.id).version;
+                    s.version = data.arxiv.get(s.id).version;
                 });
         });
         notify["selected"].connect((ss, p) => {
@@ -489,7 +489,7 @@ class UpdatesPage : PreprintPage {
     bool do_filter(Gtk.TreeModel model, Gtk.TreeIter iter) {
         Status s;
         model.get(iter, 0, out s);
-        Preprint e = data.arxiv.preprints.get(s.id);
+        Preprint e = data.arxiv.get(s.id);
         return e.version > s.version;
     }
 }
@@ -548,7 +548,7 @@ class LibraryPage : PreprintPage {
             return true;
         Status s;
         model.get(iter, 0, out s);
-        Preprint e = data.arxiv.preprints.get(s.id);
+        Preprint e = data.arxiv.get(s.id);
         foreach (var str in search_entry.text.split(" ")) {
             if (str == "")
                 continue;
@@ -578,7 +578,7 @@ class LibraryPage : PreprintPage {
     }
 
     protected override string get_uri(Preprint p, Status s) {
-        return "file://" + p.get_filename();
+        return "file://" + p.get_filename(int.max(p.version, s.version));
     }
 
     void import_clipboard() {
@@ -636,7 +636,7 @@ class SearchPage : PreprintPage {
             results.remove_if(s => true);
             Gee.Collection<string> ids = data.arxiv.search(search_entry.text);
             foreach (var id in ids)
-                results.add(data.status_db.create(id, data.arxiv.preprints.get(id).version, true));
+                results.add(data.status_db.create(id, data.arxiv.get(id).version, true));
         });
         attach_hgrid(search_combo);
 
@@ -700,7 +700,7 @@ class WatchedPage : PreprintPage {
             stdout.printf("%s\n", search_string);
             Gee.Collection<string> ids = data.arxiv.search(search_string);
             foreach (var id in ids)
-                results.add(data.status_db.create(id, data.arxiv.preprints.get(id).version, true));
+                results.add(data.status_db.create(id, data.arxiv.get(id).version, true));
         });
         attach_hgrid(update_button);
 
