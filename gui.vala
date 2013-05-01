@@ -455,10 +455,6 @@ class UpdatesPage : PreprintPage {
         stdout.printf("%d, %d\n", e.version, s.version);
         return e.version > s.version;
     }
-
-    protected override string get_uri(Preprint p) {
-        return p.pdf;
-    }
 }
 
 class LibraryPage : PreprintPage {
