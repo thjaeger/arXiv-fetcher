@@ -272,16 +272,16 @@ abstract class PreprintPage : Page {
                 var tag_button = tag_grid.get_child_at(i++, 0) as Gtk.ToggleButton;
                 bool? active = null;
                 foreach (var s in selected) {
-                    if (active == null) {
+                    if (active == null && !s.deleted) {
                         active = s.tags.contains(tag.name);
-                    } else if (active != s.tags.contains(tag.name)) {
-                        tag_button.active = false;
+                    } else if (s.deleted || active != s.tags.contains(tag.name)) {
                         tag_button.sensitive = false;
+                        tag_button.active = false;
                         return false;
                     }
                 }
-                tag_button.active = active != null && active;
                 tag_button.sensitive = active != null;
+                tag_button.active = active != null && active;
                 return false;
             });
         });
@@ -422,6 +422,8 @@ abstract class PreprintPage : Page {
             var tag_button = new Gtk.ToggleButton.with_label(tag.name);
             tag_button.sensitive = false;
             tag_button.toggled.connect(() => {
+                if (!tag_button.sensitive)
+                    return;
                 foreach (var s in selected) {
                     if (s.tags.contains(tag.name) == tag_button.active)
                         continue;
