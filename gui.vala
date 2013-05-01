@@ -2,7 +2,11 @@
 
 static const string prog_name = "arXiv-fetcher";
 
-class TagsPage : Gtk.Grid {
+class Page : Gtk.Grid {
+    public virtual void on_switch_page() {}
+}
+
+class TagsPage : Page {
     Data data;
 
     Gtk.CheckButton bold_button;
@@ -86,7 +90,7 @@ class TagsPage : Gtk.Grid {
                 data.tags.remove(iter);
         });
 
-        var add_button = new Gtk.Button.with_label("Add Tag");
+        var add_button = new Gtk.Button.with_mnemonic("_Add Tag");
         add_button.hexpand = true;
         add_button.clicked.connect(() => {
             Gtk.TreeIter iter;
@@ -95,7 +99,7 @@ class TagsPage : Gtk.Grid {
         });
         attach(add_button, 0, 1, 1, 1);
 
-        remove_button = new Gtk.Button.with_label("Remove Tag");
+        remove_button = new Gtk.Button.with_mnemonic("_Remove Tag");
         remove_button.hexpand = true;
         remove_button.clicked.connect(() => {
             Gtk.TreeIter iter;
@@ -129,19 +133,20 @@ class TagsPage : Gtk.Grid {
         var right = new Gtk.Grid();
         attach(right, 1, 0, 1, 3);
 
-        bold_button = new Gtk.CheckButton.with_label("Mark as bold");
+        bold_button = new Gtk.CheckButton.with_mnemonic("Mark as _bold");
         right.attach(bold_button, 0, 0, 1, 1);
 
-        use_color_button = new Gtk.CheckButton.with_label("Use color");
+        use_color_button = new Gtk.CheckButton.with_mnemonic("Use _color");
         right.attach(use_color_button, 0, 1, 1, 1);
 
         var color = new Gtk.Grid();
         right.attach(color, 0, 2, 1, 1);
 
-        var color_label = new Gtk.Label("Star color:");
+        var color_label = new Gtk.Label.with_mnemonic("_Star color:");
         color.attach(color_label, 0, 0, 1, 1);
         color_button = new Gtk.ColorButton();
         color_button.set_size_request(100,-1);
+        color_label.set_mnemonic_widget(color_button);
         color.attach(color_button, 1, 0, 1, 1);
 
         view.get_selection().changed.connect(update_tag_view);
@@ -204,7 +209,7 @@ class TagsPage : Gtk.Grid {
     }
 }
 
-abstract class PreprintPage : Gtk.Grid {
+abstract class PreprintPage : Page {
     protected Data data;
 
     protected Gtk.TreeView view;
@@ -414,7 +419,7 @@ abstract class PreprintPage : Gtk.Grid {
         data.tags.foreach((model, _path, iter) => {
             Tag tag;
             model.get(iter, 0, out tag);
-            var tag_button = new Gtk.ToggleButton.with_label(tag.name); // TODO: mnemonic
+            var tag_button = new Gtk.ToggleButton.with_label(tag.name);
             tag_button.sensitive = false;
             tag_button.toggled.connect(() => {
                 foreach (var s in selected) {
@@ -431,6 +436,10 @@ abstract class PreprintPage : Gtk.Grid {
         });
         tag_grid.show_all();
         tags_changed = false;
+    }
+
+    public override void on_switch_page() {
+        view.grab_focus();
     }
 }
 
@@ -451,11 +460,11 @@ class UpdatesPage : PreprintPage {
             return i2 - i1;
         });
 
-        var update_button = new Gtk.Button.with_label("Check for updates");
+        var update_button = new Gtk.Button.with_mnemonic("_Check for updates");
         attach_hgrid(update_button);
         update_button.clicked.connect(() => data.download_preprints(true));
 
-        ack_button = new Gtk.Button();
+        ack_button = new Gtk.Button.with_mnemonic("_A");
         attach_hgrid(ack_button);
         ack_button.clicked.connect(() => {
             if (selected.size > 0)
@@ -468,9 +477,9 @@ class UpdatesPage : PreprintPage {
         });
         notify["selected"].connect((ss, p) => {
             if (selected.size > 0)
-                ack_button.label = "Acknowledge selected updates";
+                ack_button.label = "_Acknowledge selected updates";
             else
-                ack_button.label = "Acknowledge all updates";
+                ack_button.label = "_Acknowledge all updates";
         });
         selected = selected;
     }
@@ -503,7 +512,7 @@ class LibraryPage : PreprintPage {
             return i2 - i1;
         });
 
-        var search_label = new Gtk.Label("Search: ");
+        var search_label = new Gtk.Label.with_mnemonic("_Search: ");
         attach_hgrid(search_label);
 
         search_entry = new Gtk.Entry();
@@ -512,6 +521,7 @@ class LibraryPage : PreprintPage {
             model.refilter();
         });
         search_entry.set_size_request(300,-1);
+        search_label.set_mnemonic_widget(search_entry);
         attach_hgrid(search_entry);
 
         import_button = new Gtk.Button.with_mnemonic("_Paste");
@@ -525,7 +535,9 @@ class LibraryPage : PreprintPage {
 
         notify["clipboard-idvs"].connect((s, p) => { import_button.sensitive = clipboard_idvs != null && clipboard_idvs.size != 0; });
         clipboard.owner_change(new Gdk.Event(Gdk.EventType.NOTHING));
+    }
 
+    public override void on_switch_page() {
         search_entry.grab_focus();
     }
 
@@ -601,7 +613,7 @@ class SearchPage : PreprintPage {
         model = the_model;
         results = the_results;
 
-        var search_label = new Gtk.Label("Search: ");
+        var search_label = new Gtk.Label.with_mnemonic("_Search: ");
         attach_hgrid(search_label);
 
         search_entry = new Gtk.Entry();
@@ -612,7 +624,12 @@ class SearchPage : PreprintPage {
                 results.add(data.status_db.create(id, data.arxiv.preprints.get(id).version, true));
         });
         search_entry.set_size_request(300,-1);
+        search_label.set_mnemonic_widget(search_entry);
         attach_hgrid(search_entry);
+    }
+
+    public override void on_switch_page() {
+        search_entry.grab_focus();
     }
 }
 
@@ -629,19 +646,19 @@ class AppWindow : Gtk.ApplicationWindow {
         var notebook = new Gtk.Notebook();
         notebook.tab_pos = Gtk.PositionType.LEFT;
 
-        var lib_label = new Gtk.Label("Library");
+        var lib_label = new Gtk.Label.with_mnemonic("_Library");
         lib_label.angle = 90;
         notebook.append_page(new LibraryPage(data), lib_label);
 
-        var updates_label = new Gtk.Label("Updates");
+        var updates_label = new Gtk.Label.with_mnemonic("_Updates");
         updates_label.angle = 90;
         notebook.append_page(new UpdatesPage(data), updates_label);
 
-        var search_label = new Gtk.Label("Search");
+        var search_label = new Gtk.Label.with_mnemonic("S_earch");
         search_label.angle = 90;
         notebook.append_page(new SearchPage(data), search_label);
 
-        var tags_label = new Gtk.Label("Tags");
+        var tags_label = new Gtk.Label.with_mnemonic("_Tags");
         tags_label.angle = 90;
         notebook.append_page(new TagsPage(data), tags_label);
 
@@ -653,6 +670,8 @@ class AppWindow : Gtk.ApplicationWindow {
         notebook.switch_page.connect((page, _page_num) => {
             if (page is PreprintPage)
                 (page as PreprintPage).update_tags();
+            if (page is Page)
+                (page as Page).on_switch_page();
         });
     }
 
