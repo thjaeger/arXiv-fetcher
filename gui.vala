@@ -515,7 +515,7 @@ class LibraryPage : PreprintPage {
         var search_label = new Gtk.Label.with_mnemonic("_Search: ");
         attach_hgrid(search_label);
 
-        search_entry = new Gtk.Entry();
+        search_entry = new Gtk.SearchEntry();
         search_entry.changed.connect(() => {
             view.set_cursor(new Gtk.TreePath(), null, false);
             model.refilter();
@@ -616,7 +616,7 @@ class SearchPage : PreprintPage {
         var search_label = new Gtk.Label.with_mnemonic("_Search: ");
         attach_hgrid(search_label);
 
-        search_entry = new Gtk.Entry();
+        search_entry = new Gtk.SearchEntry();
         search_entry.activate.connect(() => {
             results.remove_if(s => true);
             Gee.Collection<string> ids = data.arxiv.search(search_entry.text);
