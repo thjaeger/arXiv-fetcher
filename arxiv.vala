@@ -102,9 +102,12 @@ public class Preprint {
                 MatchInfo info;
                 if (!url_id.match(i->get_content(), 0, out info))
                     continue;
-                var idvs = Arxiv.parse_ids(info.fetch(1), out id);
+                var match = info.fetch(1);
+                var idvs = Arxiv.parse_ids(match, out id);
                 if (id != null)
                     version = idvs.get(id);
+                else
+                    stderr.printf("Error: Couldn't parse arxiv identifier '%s'.\n", match);
             } else if (i->name == "updated") {
                 updated = i->get_content();
             } else if (i->name == "published") {
@@ -223,8 +226,10 @@ public class Arxiv : Object {
             for (Xml.Node* i = feed->children; i != null; i = i->next)
                 if (i->name == "entry") {
                     Preprint entry = new Preprint.from_xml(i);
-                    if (entry.id == null)
-                        error("Got invalid response from arXiv\n");
+                    if (entry.id == null) {
+                        stderr.printf("Error: Invalid response from arXiv.\n");
+                        continue;
+                    }
                     preprints.set(entry.id, entry);
                     ids.add(entry.id);
                 }
@@ -249,9 +254,10 @@ public class Arxiv : Object {
         preprints_timeout.reset();
     }
 
-    public Gee.Collection<string> search(string search_string) {
+    public Gee.Collection<string> search(string search_string, bool most_recent = true) {
         var q = Soup.Form.encode("max_results", "100", "search_query", search_string);
-        stdout.printf("search: %s\n", q);
+        if (most_recent)
+            q += "&sortBy=submittedDate&sortOrder=descending";
         return query(q);
     }
 
@@ -390,5 +396,26 @@ public class Arxiv : Object {
         "physics\\.pop-ph",
         "physics\\.space-ph",
         "quant-ph",
+    };
+
+    public static const string[] obsolete_subjects = {
+        "acc-phys",
+        "adap-org",
+        "alg-geom",
+        "ao-sci",
+        "atom-ph",
+        "bayes-an",
+        "chao-dyn",
+        "chem-ph",
+        "cmp-lg",
+        "comp-gas",
+        "dg-ga",
+        "funct-an",
+        "mtrl-th",
+        "patt-sol",
+        "plasm-ph",
+        "q-alg",
+        "solv-int",
+        "supr-con",
     };
 }

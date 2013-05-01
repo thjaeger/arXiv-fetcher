@@ -176,6 +176,8 @@ public class Data {
     public ListModel<Status> starred;
     Timeout tags_timeout;
     public Gtk.ListStore tags;
+    public Timeout searches_timeout;
+    public Gee.ArrayList<string> searches;
 
     public Data() {
         arxiv = new Arxiv();
@@ -196,6 +198,9 @@ public class Data {
         tags.row_inserted.connect((path, iter) => { tags_timeout.reset(); });
         tags.row_deleted.connect(path => { tags_timeout.reset(); });
         tags.row_changed.connect((path, iter) => { tags_timeout.reset(); });
+
+        searches_timeout = new Timeout(5, save_searches);
+        load_searches();
 
         download_preprints();
     }
@@ -273,6 +278,30 @@ public class Data {
         Util.save_variant(get_tags_filename(), "tags", "a"+Tag.variant_type, db);
     }
 
+    void load_searches() {
+        searches = new Gee.ArrayList<string>();
+        try {
+            string contents;
+            if (FileUtils.get_contents(get_searches_filename(), out contents))
+                foreach (var search in contents.split("\n"))
+                    if (search != "")
+                        searches.add(search);
+        } catch (FileError e) {
+            stderr.printf("Error loaded watched searches: %s\n", e.message);
+        }
+    }
+
+    void save_searches() {
+        var contents = new StringBuilder();
+        foreach (var s in searches)
+            contents.append_printf("%s\n", s);
+        try {
+            FileUtils.set_contents(get_searches_filename(), contents.str);
+        } catch (FileError e) {
+            stderr.printf("Error saving watched searches: %s\n", e.message);
+        }
+    }
+
     public void download_preprints(bool update = false) {
         var ids = new Gee.ArrayList<string>();
         starred.foreach(s => {
@@ -304,5 +333,9 @@ public class Data {
 
     static string get_tags_filename() {
         return Path.build_filename(Environment.get_user_config_dir(), prog_name, "tags");
+    }
+
+    static string get_searches_filename() {
+        return Path.build_filename(Environment.get_user_config_dir(), prog_name, "searches");
     }
 }

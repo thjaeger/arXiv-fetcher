@@ -604,7 +604,7 @@ class SearchPage : PreprintPage {
     new Gtk.TreeModelSort model;
     StatusList results;
 
-    Gtk.Entry search_entry;
+    Gtk.ComboBoxText search_combo;
 
     public SearchPage(Data data) {
         var the_results = new StatusList(data);
@@ -616,20 +616,92 @@ class SearchPage : PreprintPage {
         var search_label = new Gtk.Label.with_mnemonic("_Search: ");
         attach_hgrid(search_label);
 
-        search_entry = new Gtk.SearchEntry();
+        search_combo = new Gtk.ComboBoxText.with_entry();
+        search_combo.set_size_request(300,-1);
+        search_label.set_mnemonic_widget(search_combo);
+
+        // This insanity is sanctioned by the gtk combo box demo...
+        var search_entry = new Gtk.SearchEntry();
+        (search_combo as Gtk.Container).remove(search_combo.get_child());
+        search_combo.add(search_entry);
+
+        search_combo.append_text("just kidding");
+        search_combo.remove_all();
+        foreach (var search in data.searches)
+            search_combo.append_text(search);
+
         search_entry.activate.connect(() => {
             results.remove_if(s => true);
             Gee.Collection<string> ids = data.arxiv.search(search_entry.text);
             foreach (var id in ids)
                 results.add(data.status_db.create(id, data.arxiv.preprints.get(id).version, true));
         });
-        search_entry.set_size_request(300,-1);
-        search_label.set_mnemonic_widget(search_entry);
-        attach_hgrid(search_entry);
+        attach_hgrid(search_combo);
+
+        var watch_button = new Gtk.ToggleButton.with_mnemonic("_Watch");
+        watch_button.toggled.connect(() => {
+            if (watch_button.active) {
+                if (watched_index() < 0) {
+                    var text = search_combo.get_active_text();
+                    data.searches.add(text);
+                    data.searches_timeout.reset();
+                    search_combo.append_text(text);
+                }
+            } else {
+                int watched = watched_index();
+                if (watched >= 0) {
+                    data.searches.remove_at(watched);
+                    data.searches_timeout.reset();
+                    search_combo.remove(watched);
+                }
+            }
+        });
+        search_entry.changed.connect(() => {
+            watch_button.sensitive = search_entry.text != "";
+            watch_button.active = watched_index() >= 0;
+        });
+        search_entry.changed();
+
+        attach_hgrid(watch_button);
+    }
+
+    int watched_index() {
+        string text = search_combo.get_active_text();
+        for (int i = 0; i < data.searches.size; i++)
+            if (data.searches[i] == text)
+                return i;
+        return -1;
     }
 
     public override void on_switch_page() {
-        search_entry.grab_focus();
+        search_combo.grab_focus();
+    }
+}
+
+class WatchedPage : PreprintPage {
+    new Gtk.TreeModelSort model;
+    StatusList results;
+
+    public WatchedPage(Data data) {
+        var the_results = new StatusList(data);
+        var the_model = new Gtk.TreeModelSort.with_model(the_results);
+        base(data, the_model);
+        model = the_model;
+        results = the_results;
+
+        var update_button = new Gtk.Button.with_mnemonic("_Update");
+        update_button.clicked.connect(() => {
+            results.remove_if(s => true);
+            if (data.searches.size == 0)
+                return;
+            var search_string = "(" + string.joinv(") OR (", data.searches.to_array()) + ")";
+            stdout.printf("%s\n", search_string);
+            Gee.Collection<string> ids = data.arxiv.search(search_string);
+            foreach (var id in ids)
+                results.add(data.status_db.create(id, data.arxiv.preprints.get(id).version, true));
+        });
+        attach_hgrid(update_button);
+
     }
 }
 
@@ -653,6 +725,10 @@ class AppWindow : Gtk.ApplicationWindow {
         var updates_label = new Gtk.Label.with_mnemonic("_Updates");
         updates_label.angle = 90;
         notebook.append_page(new UpdatesPage(data), updates_label);
+
+        var watched_label = new Gtk.Label.with_mnemonic("_Watched");
+        watched_label.angle = 90;
+        notebook.append_page(new WatchedPage(data), watched_label);
 
         var search_label = new Gtk.Label.with_mnemonic("S_earch");
         search_label.angle = 90;
@@ -718,7 +794,8 @@ class App : Gtk.Application {
 
 int main (string[] args) {
     try {
-        Arxiv.old_format = new Regex("("+string.joinv("|", Arxiv.subjects)+")/([[:digit:]]{7})(v[[:digit:]]+)?");
+        var subjects = string.joinv("|", Arxiv.subjects) + "|" + string.joinv("|", Arxiv.obsolete_subjects);
+        Arxiv.old_format = new Regex("("+subjects+")/([[:digit:]]{7})(v[[:digit:]]+)?");
         Arxiv.new_format = new Regex("([[:digit:]]{4}\\.[[:digit:]]{4})(v[[:digit:]]+)?");
         Preprint.url_id = new Regex("^http://arxiv.org/abs/(.*)$");
     } catch (GLib.RegexError e) {
