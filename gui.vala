@@ -576,7 +576,7 @@ class LibraryPage : PreprintPage {
     }
 
     protected override string get_uri(Preprint p, Status s) {
-        return p.pdf;
+        return "file://" + p.get_filename();
     }
 
     void import_clipboard() {
