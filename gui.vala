@@ -52,7 +52,7 @@ class TagsPage : Page {
                 return;
             Tag tag;
             data.tags.get(iter, 0, out tag);
-            if (new_text == "") {
+            if (new_text == "" || new_text.contains(" ")) {
                 if (tag.name == "")
                     data.tags.remove(iter);
                 return;
