@@ -560,7 +560,7 @@ class LibraryPage : PreprintPage {
                         !match_array(re, e.authors) &&
                         !re.match(e.comment) &&
                         !match_array(re, e.categories) &&
-                        !match_array(re, s.tags.to_array())
+                        !match_collection(re, s.tags)
                    )
                     return false;
             } catch (GLib.RegexError e) {
@@ -572,6 +572,13 @@ class LibraryPage : PreprintPage {
 
     bool match_array(Regex re, string[] arr) throws GLib.RegexError {
         foreach (var str in arr)
+            if (re.match(str))
+                return true;
+        return false;
+    }
+
+    bool match_collection(Regex re, Gee.Collection<string> collection) throws GLib.RegexError {
+        foreach (var str in collection)
             if (re.match(str))
                 return true;
         return false;
@@ -696,9 +703,16 @@ class WatchedPage : PreprintPage {
             results.remove_if(s => true);
             if (data.searches.size == 0)
                 return;
-            var search_string = "(" + string.joinv(") OR (", data.searches.to_array()) + ")";
-            stdout.printf("%s\n", search_string);
-            Gee.Collection<string> ids = data.arxiv.search(search_string);
+            StringBuilder search_string = null;
+            foreach (var search in data.searches) {
+                if (search_string == null)
+                    search_string = new StringBuilder("(");
+                else
+                    search_string.append(") OR (");
+                search_string.append(search);
+            }
+            search_string.append(")");
+            Gee.Collection<string> ids = data.arxiv.search(search_string.str);
             foreach (var id in ids)
                 results.add(data.status_db.create(id, data.arxiv.get(id).version, true));
         });
