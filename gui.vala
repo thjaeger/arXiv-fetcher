@@ -640,6 +640,24 @@ class SearchPage : PreprintPage {
             search_combo.append_text(search);
 
         search_entry.activate.connect(() => {
+            if (search_entry.text == "")
+                return;
+            if (!search_entry.text.contains(":")) {
+                string[] words = {};
+                bool has_quotes = false;
+                foreach (var token in search_entry.text.split("\"")) {
+                    if (has_quotes) {
+                        if (token != "")
+                            words += "all:\""+token+"\"";
+                    } else {
+                        foreach (var word in token.split(" "))
+                            if (word != "")
+                                words += "all:"+word;
+                    }
+                    has_quotes = !has_quotes;
+                }
+                search_entry.text = string.joinv(" AND ", words);
+            }
             results.remove_if(s => true);
             Gee.Collection<string> ids = data.arxiv.search(search_entry.text);
             foreach (var id in ids)
