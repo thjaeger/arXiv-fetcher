@@ -228,16 +228,29 @@ public class Arxiv {
         var ids = new Gee.ArrayList<string>();
 
         var message = new Soup.Message("GET", api + "?" + query_string);
-        session.send_message(message);
+        var response_code = session.send_message(message);
+        if (response_code != 200) {
+            stdout.printf("Error %u executing arxiv query '%s'.\n", response_code, query_string);
+            if (response_code != 400)
+                return ids;
+        }
 
         Xml.Doc* doc = Xml.Parser.parse_doc((string)message.response_body.data);
         if (doc == null)
             return ids;
 
         Xml.Node* feed = doc->get_root_element();
-        if (feed->name == "feed") {
+        if (feed->name == "feed")
             for (Xml.Node* i = feed->children; i != null; i = i->next)
                 if (i->name == "entry") {
+                    if (response_code == 400)
+                        for (Xml.Node* j = i->children; j != null; j = j->next)
+                            if (j->name == "summary") {
+                                stdout.printf("  Summary: %s\n", j->get_content());
+                                delete doc;
+                                return ids;
+                            }
+
                     Preprint entry = new Preprint.from_xml(i);
                     if (entry.id == null) {
                         stderr.printf("Error: Invalid response from arXiv.\n");
@@ -246,7 +259,6 @@ public class Arxiv {
                     preprints.set(entry.id, entry);
                     ids.add(entry.id);
                 }
-        }
         delete doc;
         return ids;
     }
