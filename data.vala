@@ -167,7 +167,7 @@ public class StatusList : ListModel<Status> {
         assert(color_column_id == Column.COLOR);
     }
 
-    public void load(Status.Database status_db, string filename, string description) {
+    public void load(Status.Database status_db, bool deleted, string filename, string description) {
         Util.load_lines(filename, description, line => {
             string[] words = line.split(" ");
             string id;
@@ -176,7 +176,7 @@ public class StatusList : ListModel<Status> {
                 stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
                 return;
             }
-            var status = status_db.create(id, idvs.get(id), false);
+            var status = status_db.create(id, idvs.get(id), deleted);
             foreach (var str in words[1:words.length])
                 status.tags.add(str);
             add(status);
@@ -204,10 +204,15 @@ public class Data {
 
     Timeout starred_timeout;
     public StatusList starred;
+
     Timeout tags_timeout;
     public Gtk.ListStore tags;
+
     public Timeout searches_timeout;
     public Gee.ArrayList<string> searches;
+
+    Timeout watched_timeout;
+    public StatusList watched;
 
     public Data() {
         arxiv = new Arxiv();
@@ -215,7 +220,7 @@ public class Data {
 
         starred_timeout = new Timeout(5, () => starred.save(get_starred_filename(), "library"));
         starred = new StatusList(this);
-        starred.load(status_db, get_starred_filename(), "library");
+        starred.load(status_db, false, get_starred_filename(), "library");
 
         starred.row_inserted.connect((path, iter) => { starred_timeout.reset(); });
         starred.row_deleted.connect(path => { starred_timeout.reset(); });
@@ -231,6 +236,14 @@ public class Data {
 
         searches_timeout = new Timeout(5, save_searches);
         load_searches();
+
+        watched_timeout = new Timeout(5, () => watched.save(get_watched_filename(), "results of watched searches"));
+        watched = new StatusList(this);
+        watched.load(status_db, true, get_watched_filename(), "results of watched searches");
+
+        watched.row_inserted.connect((path, iter) => { watched_timeout.reset(); });
+        watched.row_deleted.connect(path => { watched_timeout.reset(); });
+        watched.row_changed.connect((path, iter) => { watched_timeout.reset(); });
 
         download_preprints();
     }
@@ -310,5 +323,9 @@ public class Data {
 
     static string get_searches_filename() {
         return Path.build_filename(Environment.get_user_config_dir(), prog_name, "searches");
+    }
+
+    static string get_watched_filename() {
+        return Path.build_filename(Environment.get_user_cache_dir(), prog_name, "watched");
     }
 }

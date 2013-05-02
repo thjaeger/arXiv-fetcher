@@ -707,18 +707,15 @@ class SearchPage : PreprintPage {
 
 class WatchedPage : PreprintPage {
     new Gtk.TreeModelSort model;
-    StatusList results;
 
     public WatchedPage(Data data) {
-        var the_results = new StatusList(data);
-        var the_model = new Gtk.TreeModelSort.with_model(the_results);
+        var the_model = new Gtk.TreeModelSort.with_model(data.watched);
         base(data, the_model);
         model = the_model;
-        results = the_results;
 
         var update_button = new Gtk.Button.with_mnemonic("_Update");
         update_button.clicked.connect(() => {
-            results.remove_if(s => true);
+            data.watched.remove_if(s => true);
             if (data.searches.size == 0)
                 return;
             StringBuilder search_string = null;
@@ -732,7 +729,7 @@ class WatchedPage : PreprintPage {
             search_string.append(")");
             Gee.Collection<string> ids = data.arxiv.search(search_string.str);
             foreach (var id in ids)
-                results.add(data.status_db.create(id, data.arxiv.get(id).version, true));
+                data.watched.add(data.status_db.create(id, data.arxiv.get(id).version, true));
         });
         attach_hgrid(update_button);
 
