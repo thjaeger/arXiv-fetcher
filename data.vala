@@ -214,6 +214,8 @@ public class Data {
     Timeout watched_timeout;
     public StatusList watched;
 
+    public signal void activate_search(string search_string);
+
     public Data() {
         arxiv = new Arxiv();
         status_db = new Status.Database();

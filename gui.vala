@@ -249,7 +249,15 @@ abstract class PreprintPage : Page {
         paned.pack1(scroll1, true, true);
 
         var field_grid = new Gtk.Grid();
-        add_field(field_grid, "Author(s)", e => string.joinv(", ", e.authors));
+        add_field(field_grid, "Author(s)", e => {
+            string[] authors = {};
+            foreach (var author in e.authors)
+                authors += @"<a href=\"$author\">$author</a>";
+            return string.joinv(", ", authors);
+        }, true).activate_link.connect(link => {
+            data.activate_search("au:\""+link+"\"");
+            return true;
+        });
         add_field(field_grid, "Title", e => e.title);
         add_field(field_grid, "Abstract", e => e.summary);
         add_field(field_grid, "Comment", e => e.comment);
@@ -387,7 +395,7 @@ abstract class PreprintPage : Page {
 
     delegate string PreprintField(Preprint e);
 
-    void add_field(Gtk.Grid grid, string name, PreprintField f, bool markup = false) {
+    Gtk.Label add_field(Gtk.Grid grid, string name, PreprintField f, bool markup = false) {
         var field_label = new Gtk.Label(@"<b>$name: </b> ");
         field_label.xalign = 0.0f;
         field_label.yalign = 0.0f;
@@ -411,6 +419,8 @@ abstract class PreprintPage : Page {
                 else
                     field.set_text(entry != null ? f(entry) : "");
             });
+
+        return field;
     }
 
     public void update_tags() {
@@ -663,6 +673,7 @@ class SearchPage : PreprintPage {
             foreach (var id in ids)
                 results.add(data.status_db.create(id, data.arxiv.get(id).version, true));
         });
+        data.activate_search.connect(search_string => search_entry.text = search_string);
         attach_hgrid(search_combo);
 
         var watch_button = new Gtk.ToggleButton.with_mnemonic("_Watch");
@@ -763,7 +774,8 @@ class AppWindow : Gtk.ApplicationWindow {
 
         var search_label = new Gtk.Label.with_mnemonic("S_earch");
         search_label.angle = 90;
-        notebook.append_page(new SearchPage(data), search_label);
+        int search_page_id = notebook.append_page(new SearchPage(data), search_label);
+        data.activate_search.connect(_ => notebook.set_current_page(search_page_id));
 
         var tags_label = new Gtk.Label.with_mnemonic("_Tags");
         tags_label.angle = 90;
