@@ -5,6 +5,7 @@ public class Status : Object {
     public int version { get; set; }
     public Gee.TreeSet<string> tags { get; private set; }
     public bool deleted { get; set; }
+    public bool acked { get; set; }
 
     private Database db;
 
@@ -29,8 +30,8 @@ public class Status : Object {
         this.id = id;
         this.version = version;
         this.deleted = deleted;
+        this.acked = !deleted;
         tags = new Gee.TreeSet<string>();
-        deleted = false;
     }
 
     ~Status() {
@@ -113,7 +114,8 @@ public class StatusList : ListModel<Status> {
         TITLE,
         WEIGHT,
         STARRED,
-        COLOR
+        COLOR,
+        NACKED,
     }
 
     public StatusList(Data data) {
@@ -165,9 +167,11 @@ public class StatusList : ListModel<Status> {
             return color;
         });
         assert(color_column_id == Column.COLOR);
+        var nacked_column_id = add_boolean_column(s => !s.acked);
+        assert(nacked_column_id == Column.NACKED);
     }
 
-    public void load(Status.Database status_db, bool deleted, string filename, string description) {
+    public void load(bool tags, Status.Database status_db, bool deleted, string filename, string description) {
         Util.load_lines(filename, description, line => {
             string[] words = line.split(" ");
             string id;
@@ -178,19 +182,27 @@ public class StatusList : ListModel<Status> {
             }
             var status = status_db.create(id, idvs.get(id), deleted);
             foreach (var str in words[1:words.length])
-                status.tags.add(str);
+                if (tags)
+                    status.tags.add(str);
+                else if (str == "ack")
+                    status.acked = true;
             add(status);
         });
     }
 
-    public void save(string filename, string description) {
+    public void save(bool tags, string filename, string description) {
         var contents = new StringBuilder();
         @foreach(s => {
             contents.append(s.id);
             if (s.version > 0)
                 contents.append_printf("v%d", s.version);
-            foreach (var tag in s.tags)
-                contents.append(" " + tag);
+            if (tags) {
+                foreach (var tag in s.tags)
+                    contents.append(" " + tag);
+            } else {
+                if (s.acked)
+                    contents.append(" ack");
+            }
             contents.append_c('\n');
         });
         Util.save_contents(filename, description, contents.str);
@@ -220,9 +232,9 @@ public class Data {
         arxiv = new Arxiv();
         status_db = new Status.Database();
 
-        starred_timeout = new Timeout(5, () => starred.save(get_starred_filename(), "library"));
+        starred_timeout = new Timeout(5, () => starred.save(true, get_starred_filename(), "library"));
         starred = new StatusList(this);
-        starred.load(status_db, false, get_starred_filename(), "library");
+        starred.load(true, status_db, false, get_starred_filename(), "library");
 
         starred.row_inserted.connect((path, iter) => { starred_timeout.reset(); });
         starred.row_deleted.connect(path => { starred_timeout.reset(); });
@@ -239,9 +251,9 @@ public class Data {
         searches_timeout = new Timeout(5, save_searches);
         load_searches();
 
-        watched_timeout = new Timeout(5, () => watched.save(get_watched_filename(), "results of watched searches"));
+        watched_timeout = new Timeout(5, () => watched.save(false, get_watched_filename(), "results of watched searches"));
         watched = new StatusList(this);
-        watched.load(status_db, true, get_watched_filename(), "results of watched searches");
+        watched.load(false, status_db, true, get_watched_filename(), "results of watched searches");
 
         watched.row_inserted.connect((path, iter) => { watched_timeout.reset(); });
         watched.row_deleted.connect(path => { watched_timeout.reset(); });

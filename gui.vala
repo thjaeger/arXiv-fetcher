@@ -472,7 +472,7 @@ class UpdatesPage : PreprintPage {
             return i2 - i1;
         });
 
-        var update_button = new Gtk.Button.with_mnemonic("_Check for updates");
+        var update_button = new Gtk.Button.with_mnemonic("_Check for Updates");
         attach_hgrid(update_button);
         update_button.clicked.connect(() => data.download_preprints(true));
 
@@ -489,9 +489,9 @@ class UpdatesPage : PreprintPage {
         });
         notify["selected"].connect((ss, p) => {
             if (selected.size > 0)
-                ack_button.label = "_Acknowledge selected updates";
+                ack_button.label = "_Acknowledge selected Updates";
             else
-                ack_button.label = "_Acknowledge all updates";
+                ack_button.label = "_Acknowledge all Updates";
         });
         selected = selected;
     }
@@ -724,7 +724,11 @@ class WatchedPage : PreprintPage {
         base(data, the_model);
         model = the_model;
 
-        var update_button = new Gtk.Button.with_mnemonic("_Update");
+        var title_column = view.get_column(2);
+        var title_renderer = title_column.get_cells().data;
+        title_column.add_attribute(title_renderer, "underline", StatusList.Column.NACKED);
+
+        var update_button = new Gtk.Button.with_mnemonic("_Check for Updates");
         update_button.clicked.connect(() => {
             data.watched.remove_if(s => true);
             if (data.searches.size == 0)
@@ -744,6 +748,9 @@ class WatchedPage : PreprintPage {
         });
         attach_hgrid(update_button);
 
+        var ack_button = new Gtk.Button.with_mnemonic("_Acknowledge all Updates");
+        ack_button.clicked.connect(() => data.watched.foreach(s => s.acked = true));
+        attach_hgrid(ack_button);
     }
 }
 
