@@ -259,6 +259,7 @@ public class Arxiv {
                     preprints.set(entry.id, entry);
                     ids.add(entry.id);
                 }
+        preprints_timeout.reset();
         delete doc;
         return ids;
     }
@@ -276,7 +277,6 @@ public class Arxiv {
             }
         }
         query(@"max_results=$n&id_list=" + string.joinv(",", ids_array));
-        preprints_timeout.reset();
     }
 
     public Gee.Collection<string> search(string search_string, bool most_recent = true) {
