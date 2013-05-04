@@ -275,7 +275,7 @@ abstract class PreprintPage : Page {
         attach(paned,0,1,1,1);
 
         notify["selected"].connect((ss, p) => {
-            entry = selected.size != 1 ? null : data.arxiv.get(selected[0].id);
+            entry = selected.size != 1 ? null : selected[0].get_preprint();
             int i = 0;
             data.tags.foreach((model, _path, iter) => {
                 Tag tag;
@@ -326,7 +326,7 @@ abstract class PreprintPage : Page {
             model.get(iter, 0, out s);
             s.deleted = !s.deleted;
             if (!s.deleted && data.starred.add(s))
-                data.arxiv.get(s.id).download();
+                s.get_preprint().download();
         });
 
         var authors_renderer = new Gtk.CellRendererText();
@@ -388,7 +388,7 @@ abstract class PreprintPage : Page {
             return;
         Status s;
         model.get(iter, 0, out s);
-        var uri = get_uri(data.arxiv.get(s.id), s);
+        var uri = get_uri(s.get_preprint(), s);
         try {
             Gtk.show_uri(null, uri, Gdk.CURRENT_TIME);
         } catch (GLib.Error e) {
@@ -484,10 +484,10 @@ class UpdatesPage : PreprintPage {
         ack_button.clicked.connect(() => {
             if (selected.size > 0)
                 foreach (var s in selected)
-                    s.version = data.arxiv.get(s.id).version;
+                    s.version = s.get_preprint().version;
             else
                 data.starred.foreach(s => {
-                    s.version = data.arxiv.get(s.id).version;
+                    s.version = s.get_preprint().version;
                 });
         });
         notify["selected"].connect((ss, p) => {
@@ -502,8 +502,7 @@ class UpdatesPage : PreprintPage {
     bool do_filter(Gtk.TreeModel model, Gtk.TreeIter iter) {
         Status s;
         model.get(iter, 0, out s);
-        Preprint e = data.arxiv.get(s.id);
-        return e.version > s.version;
+        return s.get_preprint().version > s.version;
     }
 }
 
@@ -561,18 +560,18 @@ class LibraryPage : PreprintPage {
             return true;
         Status s;
         model.get(iter, 0, out s);
-        Preprint e = data.arxiv.get(s.id);
+        Preprint p = s.get_preprint();
         foreach (var str in search_entry.text.split(" ")) {
             if (str == "")
                 continue;
             try {
                 Regex re = new Regex(str, GLib.RegexCompileFlags.CASELESS);
                 if (
-                        !re.match(e.title) &&
-                        !re.match(e.summary) &&
-                        !match_array(re, e.authors) &&
-                        !re.match(e.comment) &&
-                        !match_array(re, e.categories) &&
+                        !re.match(p.title) &&
+                        !re.match(p.summary) &&
+                        !match_array(re, p.authors) &&
+                        !re.match(p.comment) &&
+                        !match_array(re, p.categories) &&
                         !match_collection(re, s.tags)
                    )
                     return false;
@@ -604,7 +603,15 @@ class LibraryPage : PreprintPage {
     void import_clipboard() {
         if (clipboard_idvs == null || clipboard_idvs.size == 0)
             return;
-        data.import(clipboard_idvs);
+
+        var preprints = data.arxiv.query_ids(clipboard_idvs.keys);
+        foreach (var p in preprints) {
+            p.download();
+            var s = data.get_preprint_status(p, false);
+            s.version = clipboard_idvs.get(p.id);
+            data.starred.add(s);
+        }
+
         var selection = view.get_selection();
         selection.unselect_all();
         bool cursor_set = false;
@@ -672,9 +679,9 @@ class SearchPage : PreprintPage {
                 search_entry.text = string.joinv(" AND ", words);
             }
             results.remove_if(s => true);
-            Gee.Collection<string> ids = data.arxiv.search(search_entry.text);
-            foreach (var id in ids)
-                results.add(data.status_db.create(id, data.arxiv.get(id).version, true));
+            var preprints = data.arxiv.search(search_entry.text);
+            foreach (var p in preprints)
+                results.add(data.get_preprint_status(p, true));
         });
         data.activate_search.connect(search_string => search_entry.text = search_string);
         attach_hgrid(search_combo);
@@ -745,9 +752,9 @@ class WatchedPage : PreprintPage {
                 search_string.append(search);
             }
             search_string.append(")");
-            Gee.Collection<string> ids = data.arxiv.search(search_string.str);
-            foreach (var id in ids)
-                data.watched.add(data.status_db.create(id, data.arxiv.get(id).version, true));
+            var preprints = data.arxiv.search(search_string.str);
+            foreach (var p in preprints)
+                data.watched.add(data.get_preprint_status(p, true));
         });
         attach_hgrid(update_button);
 

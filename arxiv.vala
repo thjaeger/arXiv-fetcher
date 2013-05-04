@@ -157,19 +157,8 @@ public class Arxiv {
     Soup.SessionAsync session;
     const string api = "http://export.arxiv.org/api/query";
 
-    public Timeout preprints_timeout;
-    public Gee.HashMap<string, Preprint> preprints;
-
     public Arxiv() {
         session = new Soup.SessionAsync();
-        preprints_timeout = new Timeout(10, save_preprints);
-        preprints = new Gee.HashMap<string, Preprint>();
-        load_preprints();
-    }
-
-    public Preprint @get(string id) {
-        Preprint? p = preprints.get(id);
-        return p ?? new Preprint.dummy(id);
     }
 
     public static Gee.Map<string, int> parse_ids(string idv, out string first_id = null) {
@@ -203,41 +192,41 @@ public class Arxiv {
         return idvs;
     }
 
-    void save_preprints() {
+    public static void save_preprints(Gee.Collection<Preprint> preprints) {
         Variant[] va = {};
-        foreach (var ke in preprints.entries)
-            va += ke.value.get_variant();
+        foreach (var p in preprints)
+            va += p.get_variant();
         Variant db = new Variant.array(new VariantType(Preprint.variant_type), va);
         Util.save_variant(get_db_filename(), "database", "a"+Preprint.variant_type, db);
     }
 
-    void load_preprints() {
+    public static Gee.Collection<Preprint> load_preprints() {
+        var preprints = new Gee.ArrayList<Preprint>();
         Util.load_variant(get_db_filename(), "database", "a"+Preprint.variant_type, db => {
             for (int i = 0; i < db.n_children(); i++) {
-                Preprint entry = new Preprint.from_variant(db.get_child_value(i));
-                preprints.set(entry.id, entry);
+                Preprint p = new Preprint.from_variant(db.get_child_value(i));
+                preprints.add(p);
             }
         });
+        return preprints;
     }
 
     static string get_db_filename() {
         return Path.build_filename(Environment.get_user_cache_dir(), prog_name, "database");
     }
 
-    Gee.Collection<string> query(string query_string) {
-        var ids = new Gee.ArrayList<string>();
-
+    void query(Gee.Collection<Preprint> preprints, string query_string) {
         var message = new Soup.Message("GET", api + "?" + query_string);
         var response_code = session.send_message(message);
         if (response_code != 200) {
             stdout.printf("Error %u executing arxiv query '%s'.\n", response_code, query_string);
             if (response_code != 400)
-                return ids;
+                return;
         }
 
         Xml.Doc* doc = Xml.Parser.parse_doc((string)message.response_body.data);
         if (doc == null)
-            return ids;
+            return;
 
         Xml.Node* feed = doc->get_root_element();
         if (feed->name == "feed")
@@ -248,7 +237,7 @@ public class Arxiv {
                             if (j->name == "summary") {
                                 stdout.printf("  Summary: %s\n", j->get_content());
                                 delete doc;
-                                return ids;
+                                return;
                             }
 
                     Preprint entry = new Preprint.from_xml(i);
@@ -256,34 +245,36 @@ public class Arxiv {
                         stderr.printf("Error: Invalid response from arXiv.\n");
                         continue;
                     }
-                    preprints.set(entry.id, entry);
-                    ids.add(entry.id);
+                    preprints.add(entry);
                 }
-        preprints_timeout.reset();
         delete doc;
-        return ids;
     }
 
-    public void query_ids(Gee.Collection<string> ids) {
+    public Gee.Collection<Preprint> query_ids(Gee.Collection<string> ids) {
+        var preprints = new Gee.ArrayList<Preprint>();
         const int n = 100;
 
         string[] ids_array = {};
         foreach (var id in ids) {
             ids_array += id;
             if (ids_array.length == n) {
-                query(@"max_results=$n&id_list=" + string.joinv(",", ids_array));
+                query(preprints, @"max_results=$n&id_list=" + string.joinv(",", ids_array));
                 ids_array = {};
                 Thread.usleep(3000000);
             }
         }
-        query(@"max_results=$n&id_list=" + string.joinv(",", ids_array));
+        query(preprints, @"max_results=$n&id_list=" + string.joinv(",", ids_array));
+
+        return preprints;
     }
 
-    public Gee.Collection<string> search(string search_string, bool most_recent = true) {
+    public Gee.Collection<Preprint> search(string search_string, bool most_recent = true) {
+        var preprints = new Gee.ArrayList<Preprint>();
         var q = Soup.Form.encode("max_results", "100", "search_query", search_string);
         if (most_recent)
             q += "&sortBy=submittedDate&sortOrder=descending";
-        return query(q);
+        query(preprints, q);
+        return preprints;
     }
 
     public static const string[] subjects = {

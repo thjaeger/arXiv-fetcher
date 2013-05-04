@@ -7,35 +7,18 @@ public class Status : Object {
     public bool deleted { get; set; }
     public bool acked { get; set; }
 
-    private Database db;
+    internal Preprint preprint;
 
-    public class Database {
-        internal Gee.HashMap<string, weak Status> db;
-
-        public Database() {
-            db = new Gee.HashMap<string, weak Status>();
-        }
-
-        public Status create(string id, int version, bool deleted) {
-            if (db.has_key(id))
-                return db.get(id);
-            Status s = new Status(this, id, version, deleted);
-            db.set(id, s);
-            return s;
-        }
+    public Preprint get_preprint() {
+        return preprint ?? new Preprint.dummy(id);
     }
 
-    Status(Database db, string id, int version, bool deleted) {
-        this.db = db;
+    internal Status(string id, int version, bool deleted) {
         this.id = id;
         this.version = version;
         this.deleted = deleted;
         this.acked = !deleted;
         tags = new Gee.TreeSet<string>();
-    }
-
-    ~Status() {
-        db.db.unset(id);
     }
 
     public void set_tag(string tag) {
@@ -58,6 +41,10 @@ public class Status : Object {
         tags.remove(src);
         tags.add(dst);
         tags = tags;
+    }
+
+    internal void _set_acked(bool acked = true) {
+        _acked = acked;
     }
 }
 
@@ -126,14 +113,14 @@ public class StatusList : ListModel<Status> {
         assert(status_column_id == Column.STATUS);
         var authors_column_id = add_string_column(s => {
             string[] authors = {};
-            foreach (var author in data.arxiv.get(s.id).authors) {
+            foreach (var author in s.get_preprint().authors) {
                 var names = author.split(" ");
                 authors += names[names.length-1];
             }
             return string.joinv(", ", authors);
         });
         assert(authors_column_id == Column.AUTHORS);
-        var title_column_id = add_string_column(s => data.arxiv.get(s.id).title);
+        var title_column_id = add_string_column(s => s.get_preprint().title);
         assert(title_column_id == Column.TITLE);
         var weight_column_id = add_int_column(s => {
             int weight = 400;
@@ -171,7 +158,7 @@ public class StatusList : ListModel<Status> {
         assert(nacked_column_id == Column.NACKED);
     }
 
-    public void load(bool tags, Status.Database status_db, bool deleted, string filename, string description) {
+    public void load(bool tags, Data data, bool deleted, string filename, string description) {
         Util.load_lines(filename, description, line => {
             string[] words = line.split(" ");
             string id;
@@ -180,12 +167,12 @@ public class StatusList : ListModel<Status> {
                 stderr.printf("Warning: couldn't parse arXiv id %s.\n", words[0]);
                 return;
             }
-            var status = status_db.create(id, idvs.get(id), deleted);
+            var status = data.get_status(id, idvs.get(id), deleted);
             foreach (var str in words[1:words.length])
                 if (tags)
                     status.tags.add(str);
                 else if (str == "ack")
-                    status.acked = true;
+                    status._set_acked();
             add(status);
         });
     }
@@ -212,7 +199,9 @@ public class StatusList : ListModel<Status> {
 
 public class Data {
     public Arxiv arxiv;
-    public Status.Database status_db;
+
+    Timeout preprint_timeout;
+    Gee.HashMap<string, weak Status> statuses;
 
     Timeout starred_timeout;
     public StatusList starred;
@@ -230,11 +219,12 @@ public class Data {
 
     public Data() {
         arxiv = new Arxiv();
-        status_db = new Status.Database();
+        statuses = new Gee.HashMap<string, weak Status>();
 
+        preprint_timeout = null;
         starred_timeout = new Timeout(5, () => starred.save(true, get_starred_filename(), "library"));
         starred = new StatusList(this);
-        starred.load(true, status_db, false, get_starred_filename(), "library");
+        starred.load(true, this, false, get_starred_filename(), "library");
 
         starred.row_inserted.connect((path, iter) => { starred_timeout.reset(); });
         starred.row_deleted.connect(path => { starred_timeout.reset(); });
@@ -253,13 +243,31 @@ public class Data {
 
         watched_timeout = new Timeout(5, () => watched.save(false, get_watched_filename(), "results of watched searches"));
         watched = new StatusList(this);
-        watched.load(false, status_db, true, get_watched_filename(), "results of watched searches");
+        watched.load(false, this, true, get_watched_filename(), "results of watched searches");
 
         watched.row_inserted.connect((path, iter) => { watched_timeout.reset(); });
         watched.row_deleted.connect(path => { watched_timeout.reset(); });
         watched.row_changed.connect((path, iter) => { watched_timeout.reset(); });
 
+        load_preprints();
+        preprint_timeout = new Timeout(5, save_preprints);
         download_preprints();
+    }
+
+    public Status get_status(string id, int version, bool deleted) {
+        if (statuses.has_key(id))
+            return statuses.get(id);
+        Status s = new Status(id, version, deleted);
+        statuses.set(id, s);
+        return s;
+    }
+
+    public Status get_preprint_status(Preprint p, bool deleted) {
+        var s = get_status(p.id, p.version, deleted);
+        if (preprint_timeout != null)
+            preprint_timeout.reset();
+        s.preprint = p;
+        return s;
     }
 
     void load_tags() {
@@ -307,24 +315,28 @@ public class Data {
     public void download_preprints(bool update = false) {
         var ids = new Gee.ArrayList<string>();
         starred.foreach(s => {
-            if (update || !arxiv.preprints.has_key(s.id))
+            if (update || s.preprint == null)
                 ids.add(s.id);
         });
         if (ids.is_empty)
             return;
-        arxiv.query_ids(ids);
-
-        foreach (var id in ids)
-            arxiv.get(id).download();
+        var preprints = arxiv.query_ids(ids);
+        foreach (var p in preprints)
+            get_preprint_status(p, true);
+        foreach (var p in preprints)
+            p.download();
     }
 
-    public bool import(Gee.Map<string, int> ids) {
-        arxiv.query_ids(ids.keys);
-        foreach (var idv in ids.entries) {
-            arxiv.get(idv.key).download();
-            starred.add(status_db.create(idv.key, idv.value, false));
-        }
-        return true;
+    public void save_preprints() {
+        var idp = new Gee.TreeMap<string, Preprint>();
+        starred.foreach(s => { if (s.preprint != null) idp.set(s.id, s.preprint); });
+        watched.foreach(s => { if (s.preprint != null) idp.set(s.id, s.preprint); });
+        Arxiv.save_preprints(idp.values);
+    }
+
+    public void load_preprints() {
+        foreach (var p in Arxiv.load_preprints())
+            get_preprint_status(p, true);
     }
 
     static string get_starred_filename() {
