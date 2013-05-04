@@ -771,18 +771,18 @@ class AppWindow : Gtk.ApplicationWindow {
         lib_label.angle = 90;
         notebook.append_page(new LibraryPage(data), lib_label);
 
-        var updates_label = new Gtk.Label.with_mnemonic("_Updates");
-        updates_label.angle = 90;
-        notebook.append_page(new UpdatesPage(data), updates_label);
+        var search_label = new Gtk.Label.with_mnemonic("S_earch");
+        search_label.angle = 90;
+        int search_page_id = notebook.append_page(new SearchPage(data), search_label);
+        data.activate_search.connect(_ => notebook.set_current_page(search_page_id));
 
         var watched_label = new Gtk.Label.with_mnemonic("_Watched");
         watched_label.angle = 90;
         notebook.append_page(new WatchedPage(data), watched_label);
 
-        var search_label = new Gtk.Label.with_mnemonic("S_earch");
-        search_label.angle = 90;
-        int search_page_id = notebook.append_page(new SearchPage(data), search_label);
-        data.activate_search.connect(_ => notebook.set_current_page(search_page_id));
+        var updates_label = new Gtk.Label.with_mnemonic("_Updates");
+        updates_label.angle = 90;
+        notebook.append_page(new UpdatesPage(data), updates_label);
 
         var tags_label = new Gtk.Label.with_mnemonic("_Tags");
         tags_label.angle = 90;
