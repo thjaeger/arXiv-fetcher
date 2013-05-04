@@ -131,6 +131,7 @@ class TagsPage : Page {
         attach(remove_button, 0, 2, 1, 1);
 
         var right = new Gtk.Grid();
+        right.set_row_spacing(6);
         attach(right, 1, 0, 1, 3);
 
         bold_button = new Gtk.CheckButton.with_mnemonic("Mark as _bold");
@@ -140,6 +141,7 @@ class TagsPage : Page {
         right.attach(use_color_button, 0, 1, 1, 1);
 
         var color = new Gtk.Grid();
+        color.set_column_spacing(6);
         right.attach(color, 0, 2, 1, 1);
 
         var color_label = new Gtk.Label.with_mnemonic("_Star color:");
@@ -234,6 +236,7 @@ abstract class PreprintPage : Page {
         tag_grid.hexpand = true;
 
         hgrid = new Gtk.Grid();
+        hgrid.set_column_spacing(6);
         hgrid.attach(tag_grid, 0, 0, 1, 1);
 
         attach(hgrid,0,0,1,1);
